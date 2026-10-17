@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -36,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,6 +46,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -144,8 +148,10 @@ fun ChatScreen(
                     Column {
                         Text(
                             text = state.title ?: "会话",
+                            style = MaterialTheme.typography.titleMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 },
@@ -153,8 +159,13 @@ fun ChatScreen(
                 // transcript scrolls — status is the one thing that must not be
                 // scrolled away.
                 actions = { StatusChip(state.status) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
             )
         },
+        containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         Column(
             Modifier
@@ -203,6 +214,7 @@ fun ChatScreen(
                     // failure reaches the user through the error strip above, so an
                     // empty transcript is never ambiguous with "we could not ask".
                     EmptyState(
+                        icon = Icons.Default.AutoAwesome,
                         title = "把任务发给电脑",
                         body = "描述你要 Harness 做的事。推理、文件操作和命令都在电脑上执行。",
                         modifier = Modifier.padding(top = 56.dp),
@@ -324,16 +336,17 @@ private fun Bubble(item: ChatItem) {
     val isUser = item.role == ChatItem.Role.User
     val isTool = item.role == ChatItem.Role.Tool
     val align = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
+    // Use the fixed role-based palette from Components.roleColor — these are
+    // deliberately NOT Material scheme tokens, because the chat canvas is a
+    // fixed dark surface in both themes (see roleColor KDoc).
     val bg = when {
         item.isError -> MaterialTheme.colorScheme.errorContainer
-        isUser -> MaterialTheme.colorScheme.primaryContainer
-        isTool -> MaterialTheme.colorScheme.surfaceVariant
-        else -> MaterialTheme.colorScheme.surface
+        else -> roleColor(item.role)
     }
     val fg = when {
         item.isError -> MaterialTheme.colorScheme.onErrorContainer
-        isUser -> MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.onSurface
+        isUser -> Color(0xFFE8EDF5) // near-white text on blue-ish dark surface
+        else -> Color(0xFFE0E0E0)   // near-white text on neutral dark surface
     }
     Box(Modifier.fillMaxWidth(), contentAlignment = align) {
         Surface(
@@ -346,12 +359,12 @@ private fun Bubble(item: ChatItem) {
             ),
             color = bg,
         ) {
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 if (isTool) {
                     Text(
                         text = "工具 · ${item.toolName ?: "调用"}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = Color(0xFF9090A0),
                     )
                     Spacer(Modifier.height(3.dp))
                 }

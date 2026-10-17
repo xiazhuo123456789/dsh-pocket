@@ -619,16 +619,35 @@ class PocketViewModel(
                 val text = Json.contentText(data["content"])
                 if (text.isBlank()) return
                 _state.update { st ->
-                    if (st.chat.items.any { it.key == "u-${event.seq}" }) st
-                    else st.copy(
-                        chat = st.chat.copy(
-                            items = st.chat.items + ChatItem(
-                                key = "u-${event.seq}",
-                                role = ChatItem.Role.User,
-                                text = text,
+                    // Dedup against both the event key and the optimistic local
+                    // bubble keyed by `local-${text.hashCode()}`. This is the fix
+                    // for the double-message bug: the local bubble was sent
+                    // immediately for responsiveness, and the desktop echoes the
+                    // same text back as a authoritative record. Without matching
+                    // on text content, the echo appeared as a second bubble.
+                    val localKey = "local-${text.hashCode()}"
+                    if (st.chat.items.any { it.key == "u-${event.seq}" || it.key == localKey }) {
+                        // Replace the local optimistic key with the stable event
+                        // key so a future re-baseline snapshot can still dedup.
+                        st.copy(
+                            chat = st.chat.copy(
+                                items = st.chat.items.map { item ->
+                                    if (item.key == localKey) item.copy(key = "u-${event.seq}")
+                                    else item
+                                }
                             )
                         )
-                    )
+                    } else {
+                        st.copy(
+                            chat = st.chat.copy(
+                                items = st.chat.items + ChatItem(
+                                    key = "u-${event.seq}",
+                                    role = ChatItem.Role.User,
+                                    text = text,
+                                )
+                            )
+                        )
+                    }
                 }
             }
 
@@ -741,11 +760,19 @@ class PocketViewModel(
         if (body.isEmpty()) return
         // Show the bubble immediately, but keep the status honest: the send is
         // only acknowledged once the gateway answers `{accepted:true}`.
+        //
+        // The key is `u-${body.hashCode()}` so the follow stream's later
+        // `user/message` event can find and drop this optimistic bubble instead
+        // of rendering it twice. The alternative — keying on a random UUID — is
+        // what caused the double-message bug: the desktop echoes the same text
+        // back as a `user/message` event with a different key, and the `any {}`
+        // dedup in `handleEvent` never matched.
+        val localKey = "local-${body.hashCode()}"
         _state.update { st ->
             st.copy(
                 chat = st.chat.copy(
                     items = st.chat.items + ChatItem(
-                        key = "local-${UUID.randomUUID()}",
+                        key = localKey,
                         role = ChatItem.Role.User,
                         text = body,
                     ),

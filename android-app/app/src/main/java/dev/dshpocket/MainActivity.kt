@@ -263,10 +263,21 @@ private fun PocketRoot(state: UiState) {
             onRefresh = app().viewModel::refreshSessions,
             onSettings = { showSettings = true },
         )
+        // Resume the last session only on a true cold start — the very first
+        // composition where neither openSessionId nor chat.sessionId has been
+        // set yet. `rememberSaveable` holds openSessionId across rotation, and
+        // the LaunchedEffect key `Unit` would re-fire on every return from
+        // settings or chat, re-opening a session the user just left. That was
+        // the "it auto-jumps to a session" bug.
+        //
+        // The guard `hasResumed` is a plain `remember` (not saveable): it only
+        // needs to survive recomposition, not a process death. On a real cold
+        // start it is false; after the first resume it is true for the life of
+        // the process.
+        var hasResumed by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
-            // Honour the last session only on a cold start of the list. Guarded so
-            // a recomposition does not re-open a session the user just closed.
-            if (openSessionId == null && state.chat.sessionId == null) {
+            if (!hasResumed && openSessionId == null && state.chat.sessionId == null) {
+                hasResumed = true
                 app().viewModel.resumeLastSession(state.settings.lastSessionId)
             }
         }
