@@ -169,26 +169,25 @@ fun EmptyState(title: String, body: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * Bubble background for a chat role.
+ * 聊天气泡背景色 — 对齐桌面端 neutral-bluish 色阶。
  *
- * Tool output gets the darkest surface because it is reference material the user
- * scans past, not a message addressed to them.
+ * 四个角色色取自桌面端 `--dsw-static-neutral-bluish-*` 色阶，深色叠加：
+ * - User (blue-ish) 品牌蓝深底
+ * - Assistant 中性深底
+ * - Tool 最深底（视觉后退）
+ * - System 介于 Tool 与 Assistant 之间
  *
- * These four colours are hard-coded rather than taken from the Material colour
- * scheme on purpose. The chat surface is a fixed dark canvas in both light and dark
- * app themes — a transcript is easier to read when its background does not change
- * with the system setting, and the role tints only have to be distinguishable
- * *from each other*, not to harmonise with the rest of the app. Expressing that as
- * theme tokens would mean inventing four scheme slots that no other screen uses.
+ * 刻意不取 Material scheme 的值。聊天面在两套主题里都是固定深色画布——
+ * 深色背景在浅色主题下也不变，因为一个转写栏的底色跟着系统切换只会更难读。
+ * 角色色只需互相可区分，不需要与 App 其余部分协调。
  */
 fun roleColor(role: ChatItem.Role): Color = when (role) {
-    // Blue-ish for the person: the one voice that is "from outside the machine".
-    ChatItem.Role.User -> Color(0xFF2A3550)
-    // Slate for the assistant: readable, deliberately not competing with the accent
-    // colour used for "running" indicators elsewhere.
-    ChatItem.Role.Assistant -> Color(0xFF17233A)
-    // Darkest for tool output: present and scrollable, but visually recessed.
-    ChatItem.Role.Tool -> Color(0xFF1A1F2B)
-    // System notices (errors, cancellations) sit between tool and assistant.
-    ChatItem.Role.System -> Color(0xFF20232B)
+    // User: DeepSeek 品牌蓝深底 — 来自 --dsw-static-deepseek-800
+    ChatItem.Role.User -> Color(0xFF34415B)
+    // Assistant: 中性蓝灰深底 — --dsw-static-neutral-bluish-875
+    ChatItem.Role.Assistant -> Color(0xFF232324)
+    // Tool: 最深底 — --dsw-static-neutral-bluish-900
+    ChatItem.Role.Tool -> Color(0xFF1B1B1C)
+    // System: 介于 Tool 与 Assistant — --dsw-static-neutral-bluish-850
+    ChatItem.Role.System -> Color(0xFF2C2C2E)
 }

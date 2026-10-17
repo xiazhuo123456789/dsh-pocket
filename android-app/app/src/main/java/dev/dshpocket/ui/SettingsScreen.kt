@@ -227,7 +227,7 @@ fun SettingsScreen(
             SectionLabel("关于", Modifier.padding(start = 16.dp))
             InfoRow(label = "版本", value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             InfoRow(label = "许可证", value = "MIT")
-            InfoRow(label = "协议", value = "DeepSeek Harness typert gateway")
+            InfoRow(label = "协议", value = "DeepSeek Harness Remote API Gateway")
             Text(
                 "本应用不包含任何 AI 推理能力，也不在手机上执行文件操作或命令。" +
                     "所有任务都在你配对的电脑上由 DeepSeek Harness 执行。",

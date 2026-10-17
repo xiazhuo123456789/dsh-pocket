@@ -1,13 +1,24 @@
-# DSH Pocket
+<p align="center">
+  <b>手机负责控制，电脑负责执行</b><br>
+  Android 远程控制 DeepSeek Harness · Kotlin + Jetpack Compose · 配对即用 · 开源
+</p>
 
-**Android 远程控制 DeepSeek Harness。手机负责控制，电脑负责执行。**
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Android%208.0%2B-3DDC84?logo=android&logoColor=white" alt="platform">
+  <img src="https://img.shields.io/badge/lang-Kotlin%202.0-7F52FF?logo=kotlin&logoColor=white" alt="lang">
+  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white" alt="UI">
+  <img src="https://img.shields.io/badge/size-R8%201.7MB-0A0A1E" alt="size">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="license">
+</p>
 
-DSH Pocket 是一款 Android 应用。配对之后，你可以用手机向电脑上的 DeepSeek Harness
-提交任务、查看回复与实时状态、停止正在运行的任务、处理审批请求，并在任务完成或需要
-你确认时收到通知。
+---
 
-它不把模型搬到手机上。所有推理、文件操作和命令执行都留在你的电脑上；手机只发送任务、
-显示结果、传递你的决定。
+> **这是什么**：DSH Pocket 是一款 Android 应用。配对之后，你可以用手机向电脑上的
+> DeepSeek Harness 提交任务、查看流式回复与实时状态、停止正在运行的任务、处理审批
+> 请求，并在任务完成或需要你确认时收到通知。
+>
+> **它不把模型搬到手机上。** 所有推理、文件操作和命令执行都留在你的电脑上；手机只发送
+> 任务、显示结果、传递你的决定。
 
 ```
 ┌──────────────┐   HTTPS / WSS    ┌───────────────────┐   loopback   ┌──────────────────┐
@@ -18,36 +29,24 @@ DSH Pocket 是一款 Android 应用。配对之后，你可以用手机向电脑
 
 ---
 
-## 它如何工作
+## ✨ 功能
 
-DSH Pocket **不实现自己的协议**。它复用 DeepSeek Harness 已经提供的远程控制面：
-
-| 能力 | 使用的接口 |
-| --- | --- |
-| 配对 | `POST /api/pair/accept`（一次性配对令牌） |
-| 之后所有调用 | `/remote/api/*`，凭据放在 `x-dsh-remote-device` |
-| 一元调用（建会话、提交任务、停止） | `POST /remote/api/<namespace>/<method>` |
-| 事件流与会话流 | `WSS /remote/api/remote.mux` 上的多路复用流 |
-| 审批 | `$events` 上的 waterfall 帧 → 回包到 `$events/result` |
-
-配对成功后，手机持有的是一个**设备凭据**。它由电脑签发、可以随时在电脑上撤销，并且
-不能用来调用配对管理面——`/api/pair`、`/api/update`、`/api/plugin-manager` 在远程侧
-永远返回 403，这是 DeepSeek Harness 的设计而不是本应用的取舍。
-
-### 为什么手机端不需要 Windows 组件
-
-远程控制面已经存在于 DeepSeek Harness Desktop 中（由 `@linxin666/dsh-remote-web-ui`
-插件挂在官方 API Gateway 上）。因此本仓库**没有** `windows-agent/` 或
-`harness-plugin/`：增加一个中间进程只会多一个需要信任、需要升级、需要排障的环节。
-
-你需要在电脑上做的只有一件事：在 DeepSeek Harness 的「远程控制」面板里生成配对
-链接或二维码。详见 [docs/windows-setup.md](docs/windows-setup.md)。
+| 能力 | 说明 |
+|---|---|
+| **设备配对** | 粘贴配对链接，或从相册选择配对二维码截图 — 零权限扫码 |
+| **远程任务** | 自然语言提交、查看流式回复、继续会话、新建会话 |
+| **实时状态** | 排队 / 运行 / 等待审批 / 成功 / 失败 / 已取消 |
+| **停止任务** | 带确认语义 — 15 秒未确认则明确显示「可能仍在运行」 |
+| **审批** | 显示工具名与申请理由，允许一次或拒绝；也可从通知操作 |
+| **通知** | 任务完成、需要审批、连接断开 — 三个独立通道 |
+| **会话列表** | 电脑上所有会话，含运行状态指示 |
+| **设置** | 服务器地址、重新连接、撤销本机凭据、通知开关 |
 
 ---
 
-## 状态语义（本应用的核心承诺）
+## 🔒 状态语义（本应用的核心承诺）
 
-这三条不是文案，是代码里的不变量，也是验收测试的对象：
+这三条不是文案，是代码里的**不变量**，也是验收测试的对象：
 
 1. **「已发送」意味着电脑确认收到了。** 消息只有在网关返回 `{accepted:true}` 之后才
    从「排队中」变成「已发送」。
@@ -61,20 +60,7 @@ DSH Pocket **不实现自己的协议**。它复用 DeepSeek Harness 已经提�
 
 ---
 
-## 功能
-
-- **设备配对** — 粘贴配对链接，或从相册选择配对二维码截图
-- **远程任务** — 自然语言提交、查看流式回复、继续会话、新建会话
-- **实时状态** — 排队 / 运行 / 等待审批 / 成功 / 失败 / 已取消
-- **停止任务** — 带确认语义，不会谎报已停止
-- **审批** — 显示工具名与申请理由，允许一次或拒绝；也可直接从通知操作
-- **通知** — 任务完成、需要审批、连接断开
-- **会话列表** — 电脑上所有会话，含运行状态指示
-- **设置** — 服务器地址、重新连接、撤销本机凭据、通知开关
-
----
-
-## 安装
+## 📦 安装
 
 从 [Releases](../../releases) 下载 `dsh-pocket-0.1.0.apk`，在手机上安装。
 Android 8.0（API 26）及以上。每个附件的 SHA-256 列在
@@ -87,7 +73,7 @@ Android 8.0（API 26）及以上。每个附件的 SHA-256 列在
 
 ---
 
-## 从源码构建
+## 🛠 从源码构建
 
 前置：JDK 17、Android SDK（platform 35、build-tools 35.0.0）。
 
@@ -119,7 +105,34 @@ assistant 消息）但修法相反。如果输出里出现
 
 ---
 
-## 安全模型
+## 🏗 它如何工作
+
+DSH Pocket **不实现自己的协议**。它复用 DeepSeek Harness 已经提供的远程控制面：
+
+| 能力 | 使用的接口 |
+| --- | --- |
+| 配对 | `POST /api/pair/accept`（一次性配对令牌） |
+| 之后所有调用 | `/remote/api/*`，凭据放在 `x-dsh-remote-device` |
+| 一元调用（建会话、提交任务、停止） | `POST /remote/api/<namespace>/<method>` |
+| 事件流与会话流 | `WSS /remote/api/remote.mux` 上的多路复用流 |
+| 审批 | `$events` 上的 waterfall 帧 → 回包到 `$events/result` |
+
+配对成功后，手机持有的是一个**设备凭据**。它由电脑签发、可以随时在电脑上撤销，并且
+不能用来调用配对管理面——`/api/pair`、`/api/update`、`/api/plugin-manager` 在远程侧
+永远返回 403，这是 DeepSeek Harness 的设计而不是本应用的取舍。
+
+### 为什么手机端不需要 Windows 组件
+
+远程控制面已经存在于 DeepSeek Harness Desktop 中（由 `@linxin666/dsh-remote-web-ui`
+插件挂在官方 API Gateway 上）。因此本仓库**没有** `windows-agent/` 或
+`harness-plugin/`：增加一个中间进程只会多一个需要信任、需要升级、需要排障的环节。
+
+你需要在电脑上做的只有一件事：在 DeepSeek Harness 的「远程控制」面板里生成配对
+链接或二维码。详见 [docs/windows-setup.md](docs/windows-setup.md)。
+
+---
+
+## 🔐 安全模型
 
 - 设备凭据由电脑签发，存于 Android EncryptedSharedPreferences（AES-256-GCM）
 - 电脑端可随时撤销任一设备；撤销后该设备立即失去全部远程能力
@@ -135,7 +148,7 @@ assistant 消息）但修法相反。如果输出里出现
 
 ---
 
-## 仓库结构
+## 📁 仓库结构
 
 ```
 dsh-pocket/
@@ -152,7 +165,7 @@ DeepSeek Harness 已有受支持的远程控制面，无需额外组件。原因
 
 ---
 
-## 文档
+## 📚 文档
 
 | 文档 | 内容 |
 | --- | --- |
@@ -178,7 +191,7 @@ DeepSeek Harness 里读出来、再用运行中的进程验证的。哪些是观
 
 ---
 
-## 当前状态
+## 📊 当前状态
 
 `v0.1.0` 是第一个可安装的版本。诚实说明验证到了什么程度：
 
@@ -207,11 +220,11 @@ DeepSeek Harness 里读出来、再用运行中的进程验证的。哪些是观
 
 ---
 
-## 许可证
+## 📄 许可证
 
 MIT，见 [LICENSE](LICENSE)。第三方组件与各自许可证见
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-## 贡献
+## 🤝 贡献
 
 见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。

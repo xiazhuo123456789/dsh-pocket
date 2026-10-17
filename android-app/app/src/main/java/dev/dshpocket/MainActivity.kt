@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
@@ -203,6 +204,10 @@ private fun PocketRoot(state: UiState) {
     }
 
     if (showSettings) {
+        // Intercept the system back key: the user expects it to leave settings,
+        // not to quit the app. Without this handler the back key propagates to
+        // the Activity and exits, which looks like a crash from the user's view.
+        BackHandler { showSettings = false }
         SettingsScreen(
             connection = state.connection,
             paired = state.paired,
@@ -226,6 +231,13 @@ private fun PocketRoot(state: UiState) {
     // screen over an empty ChatState after a failed open.
     val currentSession = openSessionId ?: state.chat.sessionId
     if (currentSession != null && state.chat.sessionId == currentSession) {
+        // Same fix for the chat screen: the system back key must return to the
+        // session list, not exit the app. The app-bar back arrow already does
+        // this, but the gesture/physical back key bypassed it.
+        BackHandler {
+            openSessionId = null
+            app().viewModel.closeSession()
+        }
         ChatScreen(
             state = state.chat,
             connection = state.connection,

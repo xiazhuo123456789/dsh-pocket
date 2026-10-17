@@ -13,69 +13,104 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Color tokens.
+ * DSH Pocket 主题 — 与 DeepSeek Harness 桌面端视觉系统对齐。
  *
- * These are deliberately *not* Material's default palette. The app is a control
- * surface for a long-running process, and the important colors are semantic:
- * green means the desktop confirmed something finished, amber means "waiting on
- * a human or on the desktop", red means the desktop reported a failure. Using
- * raw Material roles would let a themed accent color collide with a status
- * meaning, which is exactly the kind of ambiguity this app must avoid.
+ * 色值直接取自桌面端 `app.asar` 里的 CSS 自定义属性
+ * (`--dsw-static-neutral-bluish-*` / `--dsw-static-deepseek-*`)，保证手机端和
+ * 电脑端在同一台桌上看起来是同一套皮肤，而不是「两个独立应用恰好都用了深色」。
  *
- * Dark is the intended default (a phone next to a dark desktop), but light is
- * provided so the app does not fight a user who runs the system in light mode.
+ * ### 为什么不用 Material 默认色板
+ *
+ * 本应用是长时运行进程的控制面板。语义色（绿=电脑确认完成、琥珀=等待人/电脑、
+ * 红=电脑报失败）必须与主题色严格分离，否则主题色一换就会和状态含义冲突。
+ * 因此语义色放在 [PocketColors] 独立于 [MaterialTheme]。
+ *
+ * 深色是预期默认（手机常放于一台暗色桌面旁），但浅色也保留，以免与系统浅色
+ * 模式的用户打架。
+ *
+ * ### 来源标注
+ *
+ * 色值来源：桌面端 `app.asar` 内 CSS 变量定义，由 REA 工具读取。记录于
+ * `docs/sources.md` §"Primary sources: the shipped software"。
  */
-private val Ink = Color(0xFF0B1220)
-private val InkElevated = Color(0xFF141C2E)
-private val Accent = Color(0xFF7C9CFF)
-private val AccentSoft = Color(0xFF2A3550)
-private val Ok = Color(0xFF4ADE80)
-private val Warn = Color(0xFFFBBF24)
-private val Bad = Color(0xFFF87171)
+// ---- DeepSeek 品牌蓝（--dsw-static-deepseek-*）----
+private val DsBlue400 = Color(0xFF7AAAFF)
+private val DsBlue450 = Color(0xFF5686FE)
+private val DsBlue500 = Color(0xFF4176E6)
+
+// ---- 中性蓝灰（--dsw-static-neutral-bluish-*）----
+private val Neutral00 = Color(0xFFFFFFFF)
+private val Neutral50 = Color(0xFFF9FAFB)
+private val Neutral100 = Color(0xFFEBEEF2)
+private val Neutral300 = Color(0xFFCFD3D6)
+private val Neutral400 = Color(0xFFADB2B8)
+private val Neutral500 = Color(0xFF979DA6)
+private val Neutral600 = Color(0xFF81858C)
+private val Neutral700 = Color(0xFF61666B)
+private val Neutral750 = Color(0xFF43454A)
+private val Neutral800 = Color(0xFF353638)
+private val Neutral850 = Color(0xFF2C2C2E)
+private val Neutral875 = Color(0xFF232324)
+private val Neutral900 = Color(0xFF1B1B1C)
+private val Neutral950 = Color(0xFF151517)
+private val Neutral1000 = Color(0xFF0F1115)
+
+// ---- 状态色（--dsw-static-*-*, 与桌面端 state alias 对齐）----
+private val Green400 = Color(0xFF22C55E)
+private val Green500 = Color(0xFF10B981)
+private val Amber500 = Color(0xFFF59E0B)
+private val Red400 = Color(0xFFF87171)
+private val Red500 = Color(0xFFEF4444)
 
 /**
- * Dark scheme.
+ * 深色方案 — 与桌面端默认暗色皮肤一致。
  *
- * `onPrimary` is near-black rather than white because [Accent] is a light blue;
- * white text on it would fail contrast.
+ * 背景用 `--dsw-static-neutral-bluish-1000` (#0F1115)，表面逐层抬高到
+ * 875 → 850 → 800，与桌面端 `--dsw-alias-bg-layer-*` 的分层逻辑一致：
+ * 层级越高（越靠近用户）表面越亮，不靠阴影也能读出层次。
  */
 private val DarkColors = darkColorScheme(
-    primary = Accent,
-    onPrimary = Color(0xFF07101F),
-    primaryContainer = AccentSoft,
-    onPrimaryContainer = Color(0xFFDCE4FF),
-    secondary = Ok,
-    onSecondary = Color(0xFF06210F),
-    background = Ink,
-    onBackground = Color(0xFFE8ECF6),
-    // Surfaces are lighter than the background so cards read as "raised"
-    // without needing elevation shadows, which are nearly invisible on dark.
-    surface = InkElevated,
-    onSurface = Color(0xFFE8ECF6),
-    surfaceVariant = Color(0xFF1C2740),
-    onSurfaceVariant = Color(0xFFA9B4CC),
-    error = Bad,
+    primary = DsBlue500,
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = DsBlue400,
+    onPrimaryContainer = Color(0xFF0A0F1A),
+    secondary = Green500,
+    onSecondary = Color(0xFF04220F),
+    background = Neutral1000,
+    onBackground = Neutral50,
+    // 表面分层：surface 是第一层抬高的卡片底色
+    surface = Neutral875,
+    onSurface = Neutral50,
+    surfaceVariant = Neutral800,
+    onSurfaceVariant = Neutral400,
+    error = Red400,
     onError = Color(0xFF2A0808),
-    outline = Color(0xFF3A4761),
+    outline = Neutral750,
+    outlineVariant = Neutral800,
 )
 
 /**
- * Light scheme.
+ * 浅色方案。
  *
- * The status colors ([PocketColors]) are shared across both schemes; they were
- * picked to stay legible on light and dark surfaces alike.
+ * 状态色 ([PocketColors]) 在两个方案里共享；它们在浅暗表面上都可读。
  */
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF3B5BDB),
-    onPrimary = Color.White,
-    background = Color(0xFFF7F8FC),
-    onBackground = Color(0xFF10141C),
-    surface = Color.White,
-    onSurface = Color(0xFF10141C),
-    surfaceVariant = Color(0xFFEDF0F7),
-    onSurfaceVariant = Color(0xFF4A5468),
-    error = Color(0xFFB3261E),
-    outline = Color(0xFFC3CAD9),
+    primary = DsBlue500,
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFE4EDFD),
+    onPrimaryContainer = Color(0xFF283142),
+    secondary = Green500,
+    onSecondary = Color(0xFFFFFFFF),
+    background = Neutral50,
+    onBackground = Neutral900,
+    surface = Neutral00,
+    onSurface = Neutral900,
+    surfaceVariant = Neutral100,
+    onSurfaceVariant = Neutral600,
+    error = Red500,
+    onError = Color(0xFFFFFFFF),
+    outline = Neutral300,
+    outlineVariant = Neutral100,
 )
 
 /**
@@ -131,25 +166,24 @@ fun DshPocketTheme(
 }
 
 /**
- * Semantic status colors, kept outside [MaterialTheme] on purpose.
+ * 语义状态色，独立于 [MaterialTheme]。
  *
- * A status color must mean the same thing regardless of the surrounding theme.
- * If these lived in the color scheme, switching to light mode could change what
- * "confirmed by the desktop" looks like.
+ * 一个状态色在任何主题下都必须含义相同。若放进 colorScheme，切到浅色就可能改变
+ * 「电脑确认了」长什么样。色值取自桌面端 `--dsw-alias-state-*`。
  */
 object PocketColors {
-    /** The desktop confirmed the operation. */
-    val ok = Ok
+    /** The desktop confirmed the operation. —dsw-static-green-500 */
+    val ok = Green500
 
-    /** Waiting on a human (approval) or on the desktop (queued, connecting). */
-    val warn = Warn
+    /** Waiting on a human or on the desktop. —dsw-static-amber-500 */
+    val warn = Amber500
 
-    /** The desktop reported a failure, or a request could not be confirmed. */
-    val bad = Bad
+    /** The desktop reported a failure. —dsw-static-red-400 */
+    val bad = Red400
 
-    /** Active / in-flight. */
-    val accent = Accent
+    /** Active / in-flight. —dsw-static-deepseek-400 */
+    val accent = DsBlue400
 
-    /** Neutral or unknown. Never used to imply success. */
-    val muted = Color(0xFF8A96AE)
+    /** Neutral / unknown. —dsw-static-neutral-bluish-500 */
+    val muted = Neutral500
 }

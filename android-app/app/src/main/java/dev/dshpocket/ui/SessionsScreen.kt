@@ -31,6 +31,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,17 +45,20 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * The session list: the first screen after pairing.
+ * 会话列表：配对后的第一个界面。
  *
- * A "session" is a Harness conversation living on the desktop. This screen only
- * mirrors what `session/list` reports; it never invents an entry, never reorders
- * by anything except the Host's `updatedAt`, and never marks a session as
- * running on its own. The `running` flag is the desktop's own answer.
+ * 「会话」是存在于电脑端 Harness 里的对话。本屏幕只镜像 `session/list` 的返回，
+ * 不自创条目、不自行排序（只按 Host 的 `updatedAt`）、不自行标 running。`running`
+ * 标志是桌面端自己的回答。
  *
- * Why the FAB is "new session" rather than "new chat": creating a session is a
- * real Host-side operation (`session/create`) that allocates a working directory
- * and an agent preset. Keeping the two concepts separate stops the UI from
- * implying that a local draft exists before the desktop agreed to one.
+ * FAB 是「新建会话」而非「新聊天」：创建会话是真实的 Host 端操作
+ * （`session/create`），会分配工作目录和 agent preset。分开两个概念，防止 UI
+ * 暗示本地草稿在桌面同意之前就已存在。
+ *
+ * ### 视觉对齐
+ *
+ * 卡片用圆角 + 微底色（`surface` 抬高一阶），与桌面端的会话列表卡片观感一致。
+ * 运行中圆点用品牌蓝，停顿态用 muted，不混用 Material primary。
  *
  * @param sessions   Host-reported summaries, newest first as the Host ordered them.
  * @param loading    True while a `session/list` round-trip is in flight; shows a
@@ -84,7 +88,16 @@ fun SessionsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("会话") },
+                title = {
+                    Column {
+                        Text("DSH Pocket", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            "会话工作区",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
                 actions = {
                     // Swap the refresh affordance for a spinner instead of
                     // disabling it: a greyed-out icon reads as "broken", while
@@ -103,6 +116,10 @@ fun SessionsScreen(
                         Icon(Icons.Default.Settings, contentDescription = "设置")
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                ),
             )
         },
         floatingActionButton = {
@@ -110,8 +127,11 @@ fun SessionsScreen(
                 onClick = onNew,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
                 text = { Text("新建会话") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
             )
         },
+        containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             // Rendered above the list, not instead of it: see `connection` above.
@@ -148,20 +168,22 @@ fun SessionsScreen(
 /**
  * One tappable session row.
  *
- * Layout note: the status dot sits outside the text column so the title can wrap
- * to two lines without pushing the dot out of alignment.
+ * 用 surface variant 做底色、12dp 圆角，让每一行读起来像桌面端工作区里的一张
+ * 会话卡片，而非默认的 Material 列表项。运行圆点在文字列外，保证标题换行
+ * 时圆点不被挤偏。
  */
 @Composable
 private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
             .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Accent = the desktop says this session has a turn in flight.
@@ -174,7 +196,7 @@ private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
                         if (session.running) PocketColors.accent else PocketColors.muted
                     )
             )
-            Spacer(Modifier.size(12.dp))
+            Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     // A session can legitimately have no title yet (the desktop
@@ -185,15 +207,23 @@ private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = buildString {
-                        append(formatTime(session.updatedAt))
-                        if (session.running) append(" · 运行中")
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = formatTime(session.updatedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (session.running) {
+                        Box(Modifier.size(3.dp).clip(CircleShape).background(PocketColors.muted))
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            text = "运行中",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = PocketColors.accent,
+                        )
+                    }
+                }
             }
         }
     }
