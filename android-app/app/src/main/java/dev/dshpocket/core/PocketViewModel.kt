@@ -240,17 +240,20 @@ class PocketViewModel(
                 // A successful connect supersedes any "connection lost" card.
                 notifier.cancelConnection()
                 startEvents(gw)
-                refreshSessions()
+                refreshSessions(showSpinner = false)
                 // 重连成功后把用户正看着的那个会话重新订阅一遍。
                 //
                 // 不重订阅的话界面会停在旧内容上：转写不会再更新（follow 流已经
-                // 跟着上一代 socket 一起死了），状态也停在 Unknown。重新 openSession
-                // 会重置成 loadingHistory 再收一份 snapshot —— 视觉上闪一下白，但
-                // 换来的是真的接着电脑上的记录，而不是一段死掉的历史。
+                // 跟着上一代 socket 一起死了），状态也停在 Unknown。
+                //
+                // `keepContent = true` 是这一版新加的：早先重订阅会先把转写清成
+                // "正在读取记录…"，于是每次自动重连用户都看到屏幕闪白一下再
+                // 重新长出来 —— 也就是反馈里说的"莫名其妙有一点小 bug 闪现"。
+                // 内容本来就还在，重订阅只是为了接上增量，没有理由先把它抹掉。
                 //
                 // 放在 refreshSessions 之后：这样列表已经刷新过，即使重订阅失败，
                 // 用户退回去看到的也是最新的会话列表。
-                _state.value.openSessionId?.let { openSession(it) }
+                _state.value.openSessionId?.let { openSession(it, keepContent = true) }
             } catch (e: CancellationException) {
                 // Never swallow cancellation: it means the caller replaced us.
                 throw e
@@ -476,9 +479,16 @@ class PocketViewModel(
      * hand-over rather than a second mapping pass — one place decides what a wire
      * row means, and it is the protocol layer.
      */
-    fun refreshSessions() {
+    fun refreshSessions(showSpinner: Boolean = true) {
         val api = api ?: return
-        _state.update { it.copy(sessionsLoading = true) }
+        // 后台刷新（重连成功后、收到 `api-session/added` 时）不翻转顶栏的
+        // 刷新图标。
+        //
+        // 原来不分场合地置 `sessionsLoading = true`，顶栏在图标与转圈之间来回
+        // 切换 —— 而 `api-session/added` 在电脑端每次新建/加载会话时都会来一发，
+        // 用户看到的就是"顶部有个东西莫名其妙闪一下"。只有用户自己点刷新才该有
+        // 可见的进度反馈。
+        if (showSpinner) _state.update { it.copy(sessionsLoading = true) }
         scope.launch {
             try {
                 val sessions = api.list()
@@ -544,24 +554,43 @@ class PocketViewModel(
      * The last-opened session is persisted so a process restart lands the user
      * back where they were, which is what makes the "background / reopen" case
      * in the acceptance criteria work.
+     *
+     * @param keepContent 只在自动重连后重订阅时为 `true`：保留已经渲染的转写，
+     *   只重新接上增量流。为 `false` 时（用户点进另一个会话）必须重置 —— 把
+     *   上一个会话的气泡留在屏幕上是更严重的错误。
      */
-    fun openSession(sessionId: String) {
+    fun openSession(sessionId: String, keepContent: Boolean = false) {
         val api = api ?: return
+        // 换会话时必须重置；同一个会话重订阅时保留。
+        val sameSession = _state.value.chat.sessionId == sessionId
+        val preserve = keepContent && sameSession
         chatJob?.cancel()
         followHandle?.cancel()
         followHandle = null
         activeSessionId = sessionId
-        // A queue from a previous conversation describes bubbles that are no
-        // longer on screen; keeping it would retag the wrong bubble.
-        pendingUserTexts.clear()
+        if (!preserve) {
+            // A queue from a previous conversation describes bubbles that are no
+            // longer on screen; keeping it would retag the wrong bubble.
+            pendingUserTexts.clear()
+        }
         // Both fields move together: `openSessionId` drives navigation (what the
         // user sees), `chat.sessionId` drives data (whose history is loaded).
-        _state.update {
-            it.copy(
+        _state.update { st ->
+            st.copy(
                 openSessionId = sessionId,
                 // `loadingHistory = true` until the snapshot arrives: an empty
                 // transcript here means "not answered yet", not "no messages".
-                chat = ChatState(sessionId = sessionId, loadingHistory = true),
+                chat = if (preserve) {
+                    // 保留内容时不重开一个空 ChatState，否则屏幕会先闪白再长回来。
+                    // 只把"正在读"的标记按当前是否已有内容决定：已有内容就不该
+                    // 再显示"正在读取电脑上的记录"。
+                    st.chat.copy(
+                        sessionId = sessionId,
+                        loadingHistory = st.chat.items.isEmpty() && st.chat.streamingText.isEmpty(),
+                    )
+                } else {
+                    ChatState(sessionId = sessionId, loadingHistory = true)
+                },
             )
         }
         scope.launch { settings.setLastSession(sessionId) }
@@ -730,7 +759,8 @@ class PocketViewModel(
                         )
                     }
                 }
-                refreshSessions()
+                // 后台刷新：用户没有点刷新，顶栏不该转圈。
+                refreshSessions(showSpinner = false)
             }
 
             "assistant/message" -> {
@@ -1178,7 +1208,7 @@ class PocketViewModel(
                     st.copy(sessions = sessions, chat = chat)
                 }
             }
-            "api-session/added" -> refreshSessions()
+            "api-session/added" -> refreshSessions(showSpinner = false)
         }
     }
 

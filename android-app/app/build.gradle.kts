@@ -13,8 +13,13 @@ android {
         applicationId = "dev.dshpocket"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // 每次发布都要前进，绝不能原地重发同一个 versionCode：Android 允许
+        // 用相同 versionCode 覆盖安装，于是"我装过新版了吗"没有任何可核对的依据。
+        // 之前连续几轮修复都停在 versionCode=1，用户看到的界面其实还是旧包，
+        // 而我们的日志里每一次都是"已修复并发布" —— 这个版本号就是为了让这种
+        // 情况不可能再发生。
+        versionCode = 2
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

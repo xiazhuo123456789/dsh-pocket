@@ -17,8 +17,16 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -30,8 +38,10 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,11 +56,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.dshpocket.core.ChatItem
 import dev.dshpocket.core.ChatState
 import dev.dshpocket.core.ConnectionState
@@ -248,9 +262,11 @@ fun ChatScreen(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp,
+                            start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp,
                         ),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        // 间距 14dp 而不是 8dp：助手回答现在没有气泡边框，条目之间
+                        // 只靠留白区分，间距太小会让两段回答黏成一段。
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         // `key = { it.key }` is load-bearing, not decoration: it is
                         // what lets a re-delivered record update its existing bubble
@@ -375,60 +391,187 @@ private fun StopBanner(stopState: ChatState.StopState) {
 }
 
 /**
- * One chat bubble.
+ * 转写里的一条消息。
  *
- * Alignment carries meaning: user messages sit right, everything the desktop
- * produced sits left. Tool output uses a dimmer surface so it reads as reference
- * material rather than as something addressed to the user.
+ * ### 为什么用户句才有气泡，助手回答是纯正文
  *
- * `widthIn(max = 320.dp)` keeps a long line from spanning the full width on a
- * tablet, which would make the transcript hard to follow.
+ * 这是桌面端 DeepSeek Harness 的做法，也是这一轮改版的核心：把**回答**放进一个
+ * 灰方块里，等于给每一段正文都加了一圈没有信息量的边框 —— 长回答时整屏都是色块，
+ * 密度低、边界多，看起来就像"贴纸没撕干净"（用户原话："回答背景颜色太丑"）。
  *
- * 底色与文字色成对取自 [roleColors]，两者必须一起取。早先这里分别写死
- * `#232324` / `#E0E0E0`，在浅色主题下就变成"近黑气泡 + 浅灰底"，正是用户
- * 反馈的"回答背景颜色太丑"。
+ * 反过来，只有用户自己说的话才需要气泡：它要跟回答在视觉上分开来源，而且通常很短。
+ * 助手回答是这份界面真正的内容，它应该像文档一样铺在背景上，靠字号、行距和段间距
+ * 建立层次 —— 这也是为什么 [MarkdownText] 值得认真写。
+ *
+ * | 角色 | 形态 |
+ * |---|---|
+ * | User | 右对齐气泡，`primaryContainer` |
+ * | Assistant | 全宽纯正文，Markdown 渲染，无底色 |
+ * | Tool | 左侧细竖线 + 小号次级文字，读作参考资料 |
+ * | System | 居中、小号、更淡 |
+ *
+ * 出错的消息仍然是气泡（`errorContainer`）：错误需要被看见，需要跟正常回答区分开。
  */
 @Composable
 private fun Bubble(item: ChatItem) {
-    val isUser = item.role == ChatItem.Role.User
-    val isTool = item.role == ChatItem.Role.Tool
-    val align = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
-    val (roleBg, roleFg) = roleColors(item.role)
-    val bg = if (item.isError) MaterialTheme.colorScheme.errorContainer else roleBg
-    val fg = if (item.isError) MaterialTheme.colorScheme.onErrorContainer else roleFg
-    Box(Modifier.fillMaxWidth(), contentAlignment = align) {
+    when (item.role) {
+        ChatItem.Role.User -> UserBubble(item)
+        ChatItem.Role.Assistant -> AssistantBlock(item)
+        ChatItem.Role.Tool -> ToolBlock(item)
+        ChatItem.Role.System -> SystemLine(item)
+    }
+}
+
+/** 用户自己说的话：右对齐气泡，宽度上限是屏宽的 85%。 */
+@Composable
+private fun UserBubble(item: ChatItem) {
+    // 错误态优先：发送失败时这条"用户消息"其实是本地生成的失败记录。
+    if (item.isError) {
+        ErrorBubble(item)
+        return
+    }
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Surface(
-            modifier = Modifier.widthIn(max = 320.dp),
-            shape = RoundedCornerShape(
-                topStart = 14.dp,
-                topEnd = 14.dp,
-                bottomStart = if (isUser) 14.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 14.dp,
-            ),
-            color = bg,
+            // 85% 而不是固定 320dp：小屏上不会占满整行（留出左边界让"谁说的"
+            // 一眼可辨），大屏上也不会变成一条横贯全屏的长条。
+            modifier = Modifier.fillMaxWidth(0.85f),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
         ) {
-            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                if (isTool) {
-                    Text(
-                        text = "工具 · ${item.toolName ?: "调用"}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(3.dp))
-                }
+            Text(
+                text = item.text,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
+/**
+ * 助手回答：无气泡，全宽，Markdown 渲染。
+ *
+ * 没有任何背景色是刻意的 —— 回答是这屏的主内容，给它底色只会让文字与屏幕之间
+ * 多隔一层，长文时尤其压抑。
+ */
+@Composable
+private fun AssistantBlock(item: ChatItem) {
+    if (item.isError) {
+        ErrorBubble(item)
+        return
+    }
+    Column(Modifier.fillMaxWidth()) {
+        MarkdownText(
+            text = item.text,
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        if (item.streaming) {
+            Spacer(Modifier.height(6.dp))
+            StreamingDots()
+        }
+    }
+}
+
+/**
+ * 工具调用：左侧一条竖线 + 小号次级文字。
+ *
+ * 不用气泡也不用卡片：工具输出是"电脑做了什么"的旁注，读的时候应该能一眼扫过、
+ * 需要时才细看。竖线给了它一个左边界，说明它属于上面那次调用，但不会像卡片那样
+ * 把版面切碎。
+ */
+@Composable
+private fun ToolBlock(item: ChatItem) {
+    Row(Modifier.fillMaxWidth()) {
+        Box(
+            Modifier
+                .width(2.dp)
+                .heightIn(min = 20.dp)
+                .background(
+                    MaterialTheme.colorScheme.outlineVariant,
+                    RoundedCornerShape(1.dp),
+                )
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = item.toolName ?: "工具",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (item.text.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
                 Text(
                     text = item.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = fg,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 18.sp,
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (item.streaming) {
-                    Spacer(Modifier.height(4.dp))
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(12.dp),
-                        strokeWidth = 1.5.dp,
-                    )
-                }
             }
+        }
+    }
+}
+
+/** 系统提示（比如"任务已在电脑上开始"）：居中、更淡，不抢注意力。 */
+@Composable
+private fun SystemLine(item: ChatItem) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        Text(
+            text = item.text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/** 失败记录：唯一保留气泡的助手侧消息，因为它必须与正常回答明确区分。 */
+@Composable
+private fun ErrorBubble(item: ChatItem) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.errorContainer,
+        ) {
+            Text(
+                text = item.text,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+        }
+    }
+}
+
+/**
+ * "正在生成"的提示：三个依次明暗的圆点。
+ *
+ * 用三个点而不是一个转圈：转圈暗示"在等一个会结束的操作"，而模型输出是**已经
+ * 在产出文字**的，点阵更像"还在写"。三个点也足够小，不会像转圈那样在正文下方
+ * 压出一块空白。
+ */
+@Composable
+private fun StreamingDots() {
+    val transition = rememberInfiniteTransition(label = "dots")
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        repeat(3) { index ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.25f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(600, delayMillis = index * 180),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "dot$index",
+            )
+            Box(
+                Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha))
+            )
         }
     }
 }
@@ -500,12 +643,14 @@ private fun Composer(
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surface) {
+    // 输入区用 surfaceContainerLow 而不是 surface：它要与正文区拉开一阶，形成
+    // "对话在上面、输入在下面"的分层，否则滚动时输入框像是悬在文字上的浮块。
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
         Row(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 10.dp, vertical = 8.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
             OutlinedTextField(
@@ -514,6 +659,14 @@ private fun Composer(
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("描述你要 Harness 做的事…") },
                 maxLines = 5,
+                shape = RoundedCornerShape(22.dp),
+                // 无边框 + 填充底，比一圈描边更像"可以写字的地方"，也不会在
+                // 正在输入时与聚焦框的蓝线叠成双层。
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
             )
             Spacer(Modifier.size(8.dp))
@@ -521,6 +674,11 @@ private fun Composer(
                 FilledIconButton(
                     onClick = onStop,
                     enabled = stopState != ChatState.StopState.Requested,
+                    modifier = Modifier.size(48.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
                 ) {
                     Icon(Icons.Default.Stop, contentDescription = "停止")
                 }
@@ -528,6 +686,7 @@ private fun Composer(
                 FilledIconButton(
                     onClick = onSend,
                     enabled = draft.isNotBlank(),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
                 }
