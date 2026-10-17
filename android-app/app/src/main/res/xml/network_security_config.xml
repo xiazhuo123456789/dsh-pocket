@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DSH Pocket talks to a self-hosted DeepSeek Harness, which may be reached over
+  a Cloudflare quick tunnel (https) or over the LAN (http). Cleartext is allowed
+  only because LAN pairing is a first-class supported flow; the app never sends
+  the device credential to an origin the user did not explicitly pair with.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

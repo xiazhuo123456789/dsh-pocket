@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+
+# 崩溃日志
+hs_err_pid*.log
+replay_pid*.log
+
+# 签名
+*.jks
+*.keystore
+keystore.properties
+
+# 抓包产物（可能含本地会话内容）
+protocol/frames.json
+tests/frames.json
+
+# 系统
+.DS_Store
+Thumbs.db

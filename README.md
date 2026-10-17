@@ -1,0 +1,193 @@
+# DSH Pocket
+
+**Android 远程控制 DeepSeek Harness。手机负责控制，电脑负责执行。**
+
+DSH Pocket 是一款 Android 应用。配对之后，你可以用手机向电脑上的 DeepSeek Harness
+提交任务、查看回复与实时状态、停止正在运行的任务、处理审批请求，并在任务完成或需要
+你确认时收到通知。
+
+它不把模型搬到手机上。所有推理、文件操作和命令执行都留在你的电脑上；手机只发送任务、
+显示结果、传递你的决定。
+
+```
+┌──────────────┐   HTTPS / WSS    ┌───────────────────┐   loopback   ┌──────────────────┐
+│  DSH Pocket  │ ───────────────▶ │  DeepSeek Harness │ ───────────▶ │  agent / tools   │
+│  (Android)   │ ◀─────────────── │  Desktop (Win/mac)│ ◀─────────── │  (your machine)  │
+└──────────────┘   paired device  └───────────────────┘              └──────────────────┘
+```
+
+---
+
+## 它如何工作
+
+DSH Pocket **不实现自己的协议**。它复用 DeepSeek Harness 已经提供的远程控制面：
+
+| 能力 | 使用的接口 |
+| --- | --- |
+| 配对 | `POST /api/pair/accept`（一次性配对令牌） |
+| 之后所有调用 | `/remote/api/*`，凭据放在 `x-dsh-remote-device` |
+| 一元调用（建会话、提交任务、停止） | `POST /remote/api/<namespace>/<method>` |
+| 事件流与会话流 | `WSS /remote/api/remote.mux` 上的多路复用流 |
+| 审批 | `$events` 上的 waterfall 帧 → 回包到 `$events/result` |
+
+配对成功后，手机持有的是一个**设备凭据**。它由电脑签发、可以随时在电脑上撤销，并且
+不能用来调用配对管理面——`/api/pair`、`/api/update`、`/api/plugin-manager` 在远程侧
+永远返回 403，这是 DeepSeek Harness 的设计而不是本应用的取舍。
+
+### 为什么手机端不需要 Windows 组件
+
+远程控制面已经存在于 DeepSeek Harness Desktop 中（由 `@linxin666/dsh-remote-web-ui`
+插件挂在官方 API Gateway 上）。因此本仓库**没有** `windows-agent/` 或
+`harness-plugin/`：增加一个中间进程只会多一个需要信任、需要升级、需要排障的环节。
+
+你需要在电脑上做的只有一件事：在 DeepSeek Harness 的「远程控制」面板里生成配对
+链接或二维码。详见 [docs/windows-setup.md](docs/windows-setup.md)。
+
+---
+
+## 状态语义（本应用的核心承诺）
+
+这三条不是文案，是代码里的不变量，也是验收测试的对象：
+
+1. **「已发送」意味着电脑确认收到了。** 消息只有在网关返回 `{accepted:true}` 之后才
+   从「排队中」变成「已发送」。
+2. **「已停止」意味着电脑确认停了。** 点击停止只是把状态置为「已发送停止请求」；只有
+   收到该会话的 `turn/end` 事件才会变成「电脑已确认停止」。15 秒内没有确认，界面会
+   明确显示「停止请求未被确认，任务可能仍在运行」。
+3. **连不上就说连不上。** 网关不可达时界面显示错误，绝不假装请求已经发出。
+
+同样的规则适用于审批：手机显示的待审批操作来自电脑推送的 `approval/request`，你的
+选择通过 `$events/result` 送回电脑，界面上的「已处理」以电脑回执为准。
+
+---
+
+## 功能
+
+- **设备配对** — 粘贴配对链接，或从相册选择配对二维码截图
+- **远程任务** — 自然语言提交、查看流式回复、继续会话、新建会话
+- **实时状态** — 排队 / 运行 / 等待审批 / 成功 / 失败 / 已取消
+- **停止任务** — 带确认语义，不会谎报已停止
+- **审批** — 显示工具名与申请理由，允许一次或拒绝；也可直接从通知操作
+- **通知** — 任务完成、需要审批、连接断开
+- **会话列表** — 电脑上所有会话，含运行状态指示
+- **设置** — 服务器地址、重新连接、撤销本机凭据、通知开关
+
+---
+
+## 安装
+
+从 [Releases](../../releases) 下载 `dsh-pocket-<version>-release.apk`，在手机上安装。
+Android 8.0（API 26）及以上。
+
+首次打开会让你粘贴配对链接。链接来自电脑端 DeepSeek Harness 的「远程控制」面板。
+
+> **关于签名：** 当前 release APK 使用调试密钥签名，便于直接安装体验。自行构建
+> 发布版本时请换成你自己的密钥，见 [docs/android-build.md](docs/android-build.md)。
+
+---
+
+## 从源码构建
+
+前置：JDK 17、Android SDK（platform 35、build-tools 35.0.0）。
+
+```bash
+cd android-app
+./gradlew :app:assembleRelease   # → app/build/outputs/apk/release/
+./gradlew :app:testDebugUnitTest # 协议解析测试
+```
+
+细节、Windows 上的坑与镜像配置见 [docs/android-build.md](docs/android-build.md)。
+
+### 协议一致性测试
+
+单元测试固定的是帧的**形状**；一致性测试固定的是与真实电脑的**契约**：
+
+```bash
+node tests/conformance.mjs http://127.0.0.1:19387 <deviceId>
+```
+
+它会在真实电脑上跑完整闭环：未配对设备被拒 → 已配对可列会话 → 配对管理面不可达 →
+mux 连接 → `$events` 就绪 → 建会话 → follow 快照 → 提交任务 → 收到 assistant 消息 →
+收到 `turn/end` → 取消被确认 → 审批回执校验 → 心跳存活。
+
+---
+
+## 安全模型
+
+- 设备凭据由电脑签发，存于 Android EncryptedSharedPreferences（AES-256-GCM）
+- 电脑端可随时撤销任一设备；撤销后该设备立即失去全部远程能力
+- 手机端「断开并清除」只删本机凭据，彻底撤销必须到电脑上操作
+- 传输走 HTTPS/WSS；局域网直连时允许明文（见 `network_security_config.xml` 注释）
+- 应用不做本地持久化会话内容，`allowBackup=false`
+- **配对的设备等价于完整控制权。** 电脑上的对话、会话、设置、凭据、预设全部对它可见。
+  这不是本应用的实现选择，而是 DeepSeek Harness 远程控制面的既定语义。请只配对
+  你自己的设备。
+
+本应用不宣称提供沙箱、审批或加密可以消除全部风险。详见
+[docs/security-model.md](docs/security-model.md)。
+
+---
+
+## 仓库结构
+
+```
+dsh-pocket/
+├── android-app/          Kotlin + Jetpack Compose 应用
+├── protocol/             协议说明（Markdown，机器可读示例）
+├── tests/                真实电脑上的协议一致性测试（Node，无依赖）
+├── docs/                 架构、电脑端配置、构建、排障、安全模型
+└── dist/                 构建产物（GitHub Release 附件）
+```
+
+设计文档建议的 `windows-agent/` 与 `harness-plugin/` 没有创建，因为可行性审查确认
+DeepSeek Harness 已有受支持的远程控制面，无需额外组件。原因记录在
+[docs/architecture.md](docs/architecture.md)。
+
+---
+
+## 文档
+
+| 文档 | 内容 |
+| --- | --- |
+| [docs/feasibility.md](docs/feasibility.md) | 可行性审查报告：候选仓库核查、接口验证、风险、未验证项 |
+| [docs/architecture.md](docs/architecture.md) | 分层、数据流、状态机、为什么没有 Windows 组件 |
+| [docs/protocol.md](docs/protocol.md) | 线协议：帧格式、端点、错误码、审批回执 |
+| [docs/windows-setup.md](docs/windows-setup.md) | 电脑端需要做什么（只有一步） |
+| [docs/android-build.md](docs/android-build.md) | 构建环境、镜像、Windows 中文路径等坑 |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | 配对失败、隧道重启、403、状态不更新 |
+| [docs/security-model.md](docs/security-model.md) | 威胁模型与不承诺什么 |
+
+---
+
+## 当前状态
+
+`v0.1.0` 是第一个可安装的版本。诚实说明验证到了什么程度：
+
+**已验证**
+
+- Android 工程编译通过（debug + release），R8 收缩后 1.72 MB
+- 8 项协议解析单元测试通过（用真实抓包帧做夹具）
+- 13 项与真实电脑的协议一致性测试通过（配对、列会话、建会话、提交、收流、
+  完成信号、取消、审批回执校验、心跳）
+- 审批链路端到端验证：waterfall 帧 → 回执 → 电脑落 `approval/decided`
+
+**未验证**
+
+- **未在物理手机上安装运行。** 开发环境没有连接 Android 设备，UI 的实际渲染与
+  触摸交互没有真机确认。
+- 插件升级后的兼容性（当前对着 `@linxin666/dsh-remote-web-ui@0.4.5`）
+- 多设备同时配对
+- 通知按钮在真机上的完整流程
+
+细节见 [docs/feasibility.md](docs/feasibility.md) 第 8 节。
+
+---
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。第三方组件与各自许可证见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。安全问题请按 [SECURITY.md](SECURITY.md) 私下报告。

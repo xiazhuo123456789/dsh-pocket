@@ -1,0 +1,16 @@
+# 统一行尾，避免 Windows 检出时把 shell 脚本改成 CRLF
+* text=auto eol=lf
+
+# Gradle wrapper 脚本必须是 LF，否则在 Unix 上无法执行
+*.sh text eol=lf
+gradlew text eol=lf
+
+# Windows 批处理必须是 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制
+*.apk binary
+*.jar binary
+*.png binary
+*.ico binary

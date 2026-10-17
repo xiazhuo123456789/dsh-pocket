@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSH Pocket</string>
+
+    <!-- Pairing -->
+    <string name="pair_title">连接你的电脑</string>
+    <string name="pair_subtitle">在电脑的 DeepSeek Harness 中打开「远程控制」，扫描二维码或粘贴配对链接。</string>
+    <string name="pair_scan">扫描二维码</string>
+    <string name="pair_paste">粘贴配对链接</string>
+    <string name="pair_connect">连接</string>
+    <string name="pair_connecting">正在配对…</string>
+    <string name="pair_failed">配对失败</string>
+    <string name="pair_retry">重试</string>
+    <string name="pair_manual_hint">例如 https://xxx.trycloudflare.com/pair-accept?pair=…</string>
+
+    <!-- Sessions -->
+    <string name="sessions_title">会话</string>
+    <string name="sessions_empty">还没有会话。点击右下角新建一个。</string>
+    <string name="sessions_new">新建会话</string>
+    <string name="sessions_refresh">刷新</string>
+    <string name="sessions_untitled">未命名会话</string>
+    <string name="sessions_running">运行中</string>
+    <string name="sessions_idle">空闲</string>
+
+    <!-- Chat -->
+    <string name="chat_hint">描述你要 Harness 做的事…</string>
+    <string name="chat_send">发送</string>
+    <string name="chat_stop">停止</string>
+    <string name="chat_stop_confirm_title">停止当前任务？</string>
+    <string name="chat_stop_confirm_body">将向电脑发送取消请求。只有电脑确认后，任务才算真正停止。</string>
+    <string name="chat_stop_confirm_ok">发送停止请求</string>
+    <string name="chat_stop_requested">已发送停止请求，等待电脑确认…</string>
+    <string name="chat_stop_confirmed">电脑已确认停止</string>
+    <string name="chat_stop_unconfirmed">停止请求未被确认</string>
+    <string name="chat_queued">已排队</string>
+    <string name="chat_steer">插话</string>
+
+    <!-- Status -->
+    <string name="status_idle">空闲</string>
+    <string name="status_queued">排队中</string>
+    <string name="status_running">运行中</string>
+    <string name="status_awaiting_approval">等待审批</string>
+    <string name="status_done">已完成</string>
+    <string name="status_failed">失败</string>
+    <string name="status_cancelled">已取消</string>
+    <string name="status_disconnected">未连接</string>
+
+    <!-- Approval -->
+    <string name="approval_title">需要你的确认</string>
+    <string name="approval_allow_once">允许一次</string>
+    <string name="approval_reject">拒绝</string>
+    <string name="approval_expired">该请求已失效</string>
+    <string name="approval_sent">已提交决定</string>
+
+    <!-- Settings -->
+    <string name="settings_title">设置</string>
+    <string name="settings_connection">连接</string>
+    <string name="settings_relay_url">服务器地址</string>
+    <string name="settings_notifications">通知</string>
+    <string name="settings_notify_done">任务完成时通知</string>
+    <string name="settings_notify_approval">需要审批时通知</string>
+    <string name="settings_notify_disconnect">连接断开时通知</string>
+    <string name="settings_devices">已授权设备</string>
+    <string name="settings_revoke">撤销本机授权</string>
+    <string name="settings_revoke_confirm">撤销后本机需要重新配对才能控制电脑。</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_version">版本</string>
+    <string name="settings_license">许可证</string>
+    <string name="settings_unpair">断开并清除凭据</string>
+
+    <!-- Notifications -->
+    <string name="notif_channel_task">任务状态</string>
+    <string name="notif_channel_task_desc">任务完成、失败或需要审批时提醒</string>
+    <string name="notif_channel_conn">连接状态</string>
+    <string name="notif_channel_conn_desc">与电脑的连接断开时提醒</string>
+    <string name="notif_conn_title">DSH Pocket</string>
+    <string name="notif_conn_text">正在保持与电脑的连接</string>
+</resources>
