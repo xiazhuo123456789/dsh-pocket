@@ -4,8 +4,8 @@
 
 | 文件 / File | 大小 / Size | SHA-256 |
 | --- | --- | --- |
-| `dsh-pocket-0.1.0.apk` | 1.72 MiB (1,806,906 B) | `f20610a3fc0e44898046731cb0a856528939375759d85454a0b0c6a5b007abab` |
-| `dsh-pocket-0.1.0-debug.apk` | 18.79 MiB (19,698,495 B) | `b972705ab67aa6d2667fff6208b0c85e1b909a5ccbef26d3f297f8d27dfc643b` |
+| `dsh-pocket-0.1.0.apk` | 1.72 MiB (1,806,906 B) | `ef04e5a07f5c5fa3a8d56398fd08cb3a0c45c1c7358bf5ef05bd8bce44a5eab4` |
+| `dsh-pocket-0.1.0-debug.apk` | 18.79 MiB (19,699,456 B) | `ef1d83a6b57d0481519deee08a3d8f7ab8eb4645b16c96287d31a3443971ae3e` |
 
 `dsh-pocket-0.1.0.apk` 是体积优化后的发布包（R8 代码压缩 + 资源收缩），日常安装用这个。
 `dsh-pocket-0.1.0-debug.apk` 保留完整符号信息，只在排障或抓堆栈时用。
@@ -21,7 +21,7 @@ uninstalling first.
 
 ```bash
 sha256sum dsh-pocket-0.1.0.apk
-# → f20610a3fc0e44898046731cb0a856528939375759d85454a0b0c6a5b007abab
+# → ef04e5a07f5c5fa3a8d56398fd08cb3a0c45c1c7358bf5ef05bd8bce44a5eab4
 
 apksigner verify --print-certs dsh-pocket-0.1.0.apk
 # → signer #1 certificate SHA-256 digest: ee49dd744f1092f51f31c6e29cbdb90565294f7f5b6c153317d7bdaea029dfaa
