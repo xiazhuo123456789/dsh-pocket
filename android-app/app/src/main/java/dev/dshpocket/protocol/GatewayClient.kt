@@ -35,7 +35,31 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * Every request authenticates with the paired device id header. The Host treats
  * a paired device as a full-control credential, so this class never persists or
- * logs that id (see [DeviceStore]).
+ * logs that id (see [dev.dshpocket.data.CredentialStore]).
+ *
+ * ### Where these wire shapes come from
+ *
+ * None of this is a published public specification. The frame and envelope shapes
+ * were read out of the desktop software itself and then confirmed against a live
+ * process:
+ *  - `@deepseek-ai/dsh-api-gateway` (shipped inside the desktop app bundle) for
+ *    the envelope, the mux frames, and the `$events` forwarding model;
+ *  - the generated `lib/typert.remote-client.js` of each controller package for
+ *    per-method argument names;
+ *  - `@linxin666/dsh-remote-web-ui` `src/remote-api.ts` for the `/remote` prefix,
+ *    the device header, and the `?device=` query used on WebSocket upgrades.
+ *
+ * See `docs/sources.md` for the full provenance table and
+ * `tests/conformance.mjs` for the live re-check of this contract. The details are
+ * version-specific observations, not a stable API promise.
+ *
+ * ### Failure model
+ *
+ * There is no automatic reconnect in this class. A dead carrier surfaces as a
+ * [RemoteCallException] on every in-flight stream, and it is the ViewModel's job
+ * to decide whether to re-dial. Hiding a reconnect here would make "the socket is
+ * gone" indistinguishable from "the request is still running", which is the exact
+ * ambiguity this project is trying to avoid.
  */
 class GatewayClient(
     val baseUrl: HttpUrl,
@@ -47,6 +71,25 @@ class GatewayClient(
         const val DEVICE_HEADER = "x-dsh-remote-device"
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
+        /**
+         * The shared HTTP stack.
+         *
+         * Each timeout is chosen for a different job:
+         *
+         *  - `connectTimeout(15s)` — long enough for a slow mobile radio to come up,
+         *    short enough that a wrong/unreachable host fails while the user still
+         *    remembers what they typed.
+         *  - `readTimeout(0)` — **no** read timeout, because this same client drives
+         *    the multiplexed WebSocket. A read timeout would kill a healthy idle
+         *    socket that is simply waiting for the next turn event.
+         *  - `writeTimeout(30s)` — prompts can be large (long pasted text), so
+         *    writing is given more room than connecting.
+         *  - `pingInterval(20s)` — keeps the socket alive through NAT/carrier
+         *    idle timeouts *and* is how a dead link is discovered: without it a
+         *    half-open TCP connection can sit there looking connected forever.
+         *  - `retryOnConnectionFailure(true)` — safe here only because OkHttp
+         *    restricts it to failures where the request certainly never left.
+         */
         fun defaultHttp(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS) // streaming: no read timeout
@@ -81,6 +124,15 @@ class GatewayClient(
      * @param args the *wire* argument object; parameter names come from the
      *   Host descriptor and are not always the source-level names (notably
      *   `session/list` uses `_request` while `session/create` uses `request`).
+     *
+     * The Host validates the argument set strictly: a wrong or extra field is
+     * rejected with `gateway/arguments-invalid` and a message naming the exact
+     * mismatch. That strictness is what pinned the names used in `SessionApi`;
+     * it is also why this method takes a pre-built [JsonObject] rather than
+     * guessing from reflection.
+     *
+     * @throws RemoteCallException for a Host-side error, a transport failure, or
+     *   a malformed envelope. A `200` response with `ok:false` is still an error.
      */
     suspend fun call(endpoint: String, args: JsonObject = JsonObject(emptyMap())): JsonElement? {
         val rpcId = "p${rpcSeq.incrementAndGet()}-${UUID.randomUUID()}"
@@ -129,14 +181,33 @@ class GatewayClient(
 
     // ------------------------------------------------------------- streaming
 
-    /** One logical stream opened on the shared mux carrier. */
+    /**
+     * One logical stream opened on the shared mux carrier.
+     *
+     * The Host can multiplex many streams over a single WebSocket, so a handle is
+     * a routing key plus a private queue — not a socket. Frames arrive on the
+     * listener thread and are handed over through [inbox]; [items] is the
+     * suspending view that callers actually consume.
+     *
+     * The queue is [Channel.UNLIMITED] deliberately. A bounded queue would let a
+     * slow UI consumer block the OkHttp reader thread, which would stall the ping
+     * response and make the Host kill the whole mux for an unrelated reason.
+     * Backpressure is instead applied at the source: the ViewModel coalesces
+     * assistant deltas into one text buffer rather than storing every chunk.
+     */
     inner class StreamHandle internal constructor(
         internal val streamId: String,
         internal val endpoint: String,
     ) {
         internal val inbox = Channel<Frame>(Channel.UNLIMITED)
 
-        /** Host items until `end`, `error`, or cancellation. */
+        /**
+         * Host items until `end`, `error`, or cancellation.
+         *
+         * Terminates normally on [Frame.End], throws on [Frame.Error]. Callers can
+         * therefore use ordinary `for`/`collect` and treat an exception as a real
+         * failure rather than as end-of-stream.
+         */
         val items: Flow<JsonElement?> = flow {
             for (frame in inbox) {
                 when (frame) {
@@ -147,6 +218,13 @@ class GatewayClient(
             }
         }
 
+        /**
+         * Ask the Host to stop this stream and drop the local queue.
+         *
+         * Sends `cancel` before closing so the Host can release server-side work;
+         * closing first would leave the Host producing items nobody reads until
+         * it notices the socket is gone.
+         */
         fun cancel() {
             sendFrame(
                 buildJsonObject {
@@ -158,6 +236,14 @@ class GatewayClient(
         }
     }
 
+    /**
+     * One multiplexed stream, as seen by a caller.
+     *
+     * `Item` and `End` are the normal lifecycle; `Error` is the Host reporting a
+     * failure *for this stream only* (the socket stays up). Keeping the error on
+     * the stream — rather than surfacing it as a socket-level exception — is what
+     * lets one failed follow call coexist with a healthy mux carrying other streams.
+     */
     internal sealed interface Frame {
         class Item(val value: JsonElement?) : Frame
         data object End : Frame
@@ -165,6 +251,18 @@ class GatewayClient(
     }
 
     private val streams = ConcurrentHashMap<String, StreamHandle>()
+
+    /**
+     * Streams whose `open` frame was sent but which have not produced their first
+     * item yet.
+     *
+     * This two-map split exists because the Host only starts routing frames for a
+     * `streamId` after it has accepted the `open`. Until the first frame arrives
+     * there is no way to tell "still starting" from "silently dropped", so the
+     * handle lives here and is promoted on first contact. A stream that never
+     * produces a first frame simply stays pending, which surfaces as a timeout at
+     * the caller instead of a false success.
+     */
     private val pendingOpens = ConcurrentHashMap<String, StreamHandle>()
 
     @Volatile private var socket: WebSocket? = null
@@ -184,12 +282,31 @@ class GatewayClient(
 
     private val muxLock = Any()
 
+    /**
+     * The one multiplexed carrier URL.
+     *
+     * Built with [HttpUrl.Builder] rather than string concatenation so a base URL
+     * with a trailing slash (or an existing path, for a reverse-proxied install)
+     * still produces a correct `/remote/api/remote.mux`. The device id goes in the
+     * **query string** here, not a header, because the WebSocket upgrade cannot
+     * reliably carry the custom credential header from every client stack.
+     */
     private fun muxUrl(): HttpUrl = baseUrl.newBuilder()
         .addPathSegment("remote").addPathSegment("api").addPathSegment("remote.mux")
         .addQueryParameter("device", deviceId)
         .build()
 
-    /** Ensure the mux WebSocket is connected; safe to call repeatedly. */
+    /**
+     * Ensure the mux WebSocket is connected; safe to call repeatedly.
+     *
+     * The double-checked lock matters: several callers can race here (the warm-up
+     * in `init`, `openEvents`, and a `session/follow`), and opening two sockets
+     * would split streams across carriers that each think they own the id space.
+     *
+     * The 20 s deadline is generous on purpose — a phone waking from doze over a
+     * quick tunnel can take several seconds to complete a TLS handshake — but it
+     * is finite, because an unbounded wait is indistinguishable from a hang.
+     */
     suspend fun ensureMux() {
         if (muxReady && socket != null) return
         synchronized(muxLock) {
@@ -212,6 +329,12 @@ class GatewayClient(
      * Open one streaming Remote method.
      *
      * @param endpoint canonical endpoint, or the internal `$events` source.
+     *
+     * Returns as soon as the `open` frame is handed to the socket — it does not
+     * wait for the first item. Callers that need proof the stream is live must
+     * consume [StreamHandle.items] and check that a first frame actually arrives
+     * (that is what `session/follow`'s `snapshot` and `$events`'s `ready` frame
+     * are for).
      */
     suspend fun openStream(endpoint: String, args: JsonObject = JsonObject(emptyMap())): StreamHandle {
         ensureMux()
@@ -228,6 +351,16 @@ class GatewayClient(
         return handle
     }
 
+    /**
+     * Read the `clientId` out of the `$events` opening frame.
+     *
+     * This is a genuine ordering hazard, so it is handled explicitly rather than
+     * assumed: the Host will not accept a `$events/result` reply until the
+     * subscriber has announced itself with `{type:"ready"}`, and that frame is the
+     * only place the id appears. [answerEvent] therefore refuses to guess and
+     * throws `gateway/events-not-ready` instead of sending a reply that would be
+     * rejected with a less helpful error.
+     */
     private fun captureEventsIdentity(value: JsonElement?) {
         val o = value?.asObjOrNull() ?: return
         if (o.string("type") != "ready") return
@@ -235,6 +368,15 @@ class GatewayClient(
         hostHome = o.obj("host")?.string("home")
     }
 
+    /**
+     * Send one already-built frame, or fail loudly.
+     *
+     * `WebSocket.send` returning `false` means the frame **did not leave** — it was
+     * queued into a socket that has already closed. Treating that as success would
+     * be the exact failure mode this project exists to prevent (a call that looks
+     * sent but never was), so it is converted into the same error as "no socket at
+     * all".
+     */
     private fun sendFrame(frame: JsonObject) {
         val ws = socket ?: throw RemoteCallException(
             RemoteError("gateway/mux-closed", "Remote mux is not connected")
@@ -244,6 +386,14 @@ class GatewayClient(
         }
     }
 
+    /**
+     * Carrier event loop.
+     *
+     * Runs on OkHttp's reader thread, so every handler here must stay non-blocking:
+     * items are pushed into unbounded queues and the ping/pong bookkeeping is left
+     * to OkHttp (`pingInterval`). Anything that suspends or does I/O here would
+     * delay the pong and provoke a Host-side disconnect after ~2 s.
+     */
     private inner class MuxListener : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             muxReady = true
@@ -289,6 +439,15 @@ class GatewayClient(
             }
         }
 
+        /**
+         * Carrier failure.
+         *
+         * Every open stream is failed with the same error and closed, because
+         * after the carrier dies none of them can make progress. Leaving them open
+         * would make a follow stream look idle instead of broken — the failure has
+         * to propagate to the caller so the UI can say "disconnected" rather than
+         * "the desktop is thinking".
+         */
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             muxReady = false
             socket = null
@@ -316,6 +475,13 @@ class GatewayClient(
         }
     }
 
+    /**
+     * Tear the carrier down.
+     *
+     * Sends a normal-closure frame (1000) so the Host can reap the subscriber
+     * immediately instead of waiting for a missed pong. Idempotent: calling it
+     * twice, or on a never-connected client, is not an error.
+     */
     fun close() {
         socket?.close(1000, "client closing")
         socket = null
@@ -325,7 +491,24 @@ class GatewayClient(
     /** Convenience: open the forwarded-event source used for approvals and pings. */
     suspend fun openEvents(): StreamHandle = openStream("\$events")
 
-    /** Answer one forwarded waterfall event (approval decision). */
+    /**
+     * Answer one forwarded waterfall event (approval decision).
+     *
+     * @param eventId the `eventId` from the waterfall frame.
+     * @param outcome one of [ApprovalRequest.allowOnce] or
+     *   [ApprovalRequest.reject]. The Host accepts no other vocabulary; the
+     *   remaining internal states (`cancelled`, `unavailable`) are Host-produced
+     *   and cannot be asserted by a client.
+     *
+     * The unary reply resolves to `void` on success. A `null` return is therefore
+     * the success case — do not read it as "the approval was ignored". Proof that
+     * the decision landed arrives separately as an `approval/decided` event on the
+     * followed session stream, which is what the UI waits for.
+     *
+     * @throws RemoteCallException if `$events` has not announced its `clientId`
+     *   yet, or if the Host rejects the reply (for example when the request has
+     *   already been settled by another subscriber).
+     */
     suspend fun answerEvent(eventId: String, outcome: JsonObject) {
         val clientId = eventsClientId ?: throw RemoteCallException(
             RemoteError("gateway/events-not-ready", "The \$events source has not announced its clientId yet")
@@ -341,6 +524,11 @@ class GatewayClient(
     init {
         require(deviceId.isNotBlank()) { "deviceId must not be blank" }
         // Keep the carrier warm for the lifetime of the client.
+        //
+        // This is an optimisation, not a requirement: `openStream` calls
+        // `ensureMux` anyway. Warming up here removes a handshake's worth of
+        // latency from the first user action, which matters because that action
+        // is usually "open a session" right after launch.
         scope.launch {
             runCatching { ensureMux() }
         }

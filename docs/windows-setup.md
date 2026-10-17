@@ -15,7 +15,7 @@
 3. 确认隧道状态是「运行中」；界面会显示一个 `https://<随机词>.trycloudflare.com` 地址
 4. 点「生成配对链接」或直接扫界面上的二维码
 
-配对链接形如：
+配对链接形如（下例中的主机名和 token 均为示意，不是真实可用的链接）：
 
 ```
 https://example-words-here.trycloudflare.com/pair-accept?pair=<一次性token>

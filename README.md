@@ -76,8 +76,9 @@ DSH Pocket **不实现自己的协议**。它复用 DeepSeek Harness 已经提�
 
 ## 安装
 
-从 [Releases](../../releases) 下载 `dsh-pocket-<version>-release.apk`，在手机上安装。
-Android 8.0（API 26）及以上。
+从 [Releases](../../releases) 下载 `dsh-pocket-0.1.0.apk`，在手机上安装。
+Android 8.0（API 26）及以上。每个附件的 SHA-256 列在
+[dist/README.md](dist/README.md)，可以核对下载是否完整。
 
 首次打开会让你粘贴配对链接。链接来自电脑端 DeepSeek Harness 的「远程控制」面板。
 
@@ -109,6 +110,12 @@ node tests/conformance.mjs http://127.0.0.1:19387 <deviceId>
 它会在真实电脑上跑完整闭环：未配对设备被拒 → 已配对可列会话 → 配对管理面不可达 →
 mux 连接 → `$events` 就绪 → 建会话 → follow 快照 → 提交任务 → 收到 assistant 消息 →
 收到 `turn/end` → 取消被确认 → 审批回执校验 → 心跳存活。
+
+最后两项检查会把「链路坏了」和「电脑自己拒了这一轮」区分开——两者表现相同（都没有
+assistant 消息）但修法相反。如果输出里出现
+`desktop reported: provider "…" model "…" does not support reasoning effort "…"`，那
+是电脑端的模型配置问题（`reasoningEffort` 与模型不匹配，错误码
+`UNSUPPORTED_REASONING_EFFORT`），应当在电脑端改配置后重跑，而不是改本应用。
 
 ---
 
@@ -156,6 +163,18 @@ DeepSeek Harness 已有受支持的远程控制面，无需额外组件。原因
 | [docs/android-build.md](docs/android-build.md) | 构建环境、镜像、Windows 中文路径等坑 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 配对失败、隧道重启、403、状态不更新 |
 | [docs/security-model.md](docs/security-model.md) | 威胁模型与不承诺什么 |
+| [docs/sources.md](docs/sources.md) | **每一条外部事实的来源**，以及哪些是观察、哪些是我们的判断 |
+
+### 关于引用与署名
+
+本项目的线协议事实**不是**从博客或别人的应用里抄来的，而是从开发机上真实安装的
+DeepSeek Harness 里读出来、再用运行中的进程验证的。哪些是观察所得、哪些是本项目的
+设计判断、参考了哪些公开仓库与规范，全部逐条列在
+[docs/sources.md](docs/sources.md)。
+
+**本仓库没有拷贝任何第三方源代码。**上游项目在 `docs/sources.md` 第 3 节署名，是出于
+对影响的诚实说明，不是许可义务。如果发现任何一处来源标注错误或措辞抄袭，请开 issue——
+来源标注错误在本项目里按 bug 处理。
 
 ---
 
@@ -167,7 +186,7 @@ DeepSeek Harness 已有受支持的远程控制面，无需额外组件。原因
 
 - Android 工程编译通过（debug + release），R8 收缩后 1.72 MB
 - 8 项协议解析单元测试通过（用真实抓包帧做夹具）
-- 13 项与真实电脑的协议一致性测试通过（配对、列会话、建会话、提交、收流、
+- 12 项与真实电脑的协议一致性测试通过（配对、列会话、建会话、提交、收流、
   完成信号、取消、审批回执校验、心跳）
 - 审批链路端到端验证：waterfall 帧 → 回执 → 电脑落 `approval/decided`
 
@@ -175,6 +194,11 @@ DeepSeek Harness 已有受支持的远程控制面，无需额外组件。原因
 
 - **未在物理手机上安装运行。** 开发环境没有连接 Android 设备，UI 的实际渲染与
   触摸交互没有真机确认。
+- **「模型真的产出回复」这一环没有在最后一次回归里通过。** 一致性测试的 14 项检查中
+  有 2 项失败，原因是测试所用电脑的模型配置不可用（`reasoningEffort: high` 与
+  `gpt-5.2-pro` 不匹配，错误码 `UNSUPPORTED_REASONING_EFFORT`）；同一台电脑更早的
+  会话确实产出过 49 条 assistant 消息，所以链路本身是通的，缺的是当前模型配置下的
+  一次完整回归。这两个失败被如实报出而不是被跳过——见上面「协议一致性测试」一节。
 - 插件升级后的兼容性（当前对着 `@linxin666/dsh-remote-web-ui@0.4.5`）
 - 多设备同时配对
 - 通知按钮在真机上的完整流程

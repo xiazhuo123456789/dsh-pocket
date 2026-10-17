@@ -4,6 +4,8 @@ build/
 local.properties
 *.iml
 .idea/
+# Kotlin 编译器的本地错误日志（含本机路径与内存配置，不是源码）
+.kotlin/
 
 # 崩溃日志
 hs_err_pid*.log
@@ -17,6 +19,18 @@ keystore.properties
 # 抓包产物（可能含本地会话内容）
 protocol/frames.json
 tests/frames.json
+
+# 本地配对凭据与实跑观察值。这些文件可能含真实 deviceId、一次性配对 token
+# 和隧道主机名，属于凭据而非源码，绝不能进入公开仓库。
+# Local pairing credentials and live-run observations. These may contain a real
+# deviceId, a one-time pairing token and a tunnel hostname — credentials, never
+# source code. They must not reach a public repository.
+.poc-*
+.poc-device
+.poc-base
+.poc-token
+tests/.env
+*.local.json
 
 # 系统
 .DS_Store

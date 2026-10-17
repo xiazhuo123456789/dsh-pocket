@@ -1,0 +1,146 @@
+# Sources and Attribution / 来源与引用
+
+This file records **where every external fact in this repository came from**. It exists
+for two reasons: so a reader can verify our claims, and so we never present someone
+else's work or wording as our own.
+
+本文件记录仓库中**每一条外部事实的来源**。目的有两个：让读者可以核实我们的结论；以及确保
+不把别人的工作或措辞当成自己的。
+
+---
+
+## 1. Licensing position / 许可立场
+
+DSH Pocket is an **independent, unaffiliated** project. It is not produced, endorsed,
+or sponsored by DeepSeek.
+
+DSH Pocket 是一个**独立、无隶属关系**的项目，不由 DeepSeek 制作、背书或赞助。
+
+| Component | Relationship | License |
+|---|---|---|
+| This repository's own code | Written for this project | MIT (see [`LICENSE`](../LICENSE)) |
+| DeepSeek Harness (desktop) | **Not vendored.** A separate program the user installs and runs. We talk to its HTTP/WebSocket surface. | MIT |
+| `@linxin666/dsh-remote-web-ui` | **Not vendored.** A third-party plugin the user installs into their own Harness profile. We call the pairing endpoints it exposes. | Apache-2.0 |
+| AndroidX / Jetpack Compose / OkHttp / kotlinx.serialization / ZXing | Normal Maven dependencies, not copied source | Apache-2.0 / MIT |
+
+No third-party source code has been copied into this repository. Every `.kt` file here
+was written for DSH Pocket. The only exception is ordinary API usage of the libraries
+listed above, which is what those libraries exist for.
+
+**本仓库没有拷贝任何第三方源代码。**所有 `.kt` 文件均为本项目编写；对上述库的使用属于
+正常的 API 调用。
+
+See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) for the full dependency list
+and license texts pointers.
+
+---
+
+## 2. Primary sources: the shipped software on the author's machine / 一手来源
+
+The protocol facts in this project were **not** taken from blog posts or from another
+app's source. They were read out of the actual software installed on the development
+machine, then confirmed against the running process. Each fact below names the artifact
+it came from.
+
+本项目的协议事实**不是**来自博客或他人的应用源码，而是从开发机上真实安装的软件中读出，
+再用运行中的进程验证。
+
+| What we learned | Where it came from | How it was confirmed |
+|---|---|---|
+| The desktop exposes a typed RPC surface over `/api` and `/api/remote.mux` | `@deepseek-ai/dsh-api-gateway` package README (`README.zh.md`) shipped inside the desktop app bundle | Called the endpoints against the running desktop |
+| `session/*`, `skills/*`, `fileReferences/*` method shapes and wire argument names | Generated client `lib/typert.remote-client.js` inside `@deepseek-ai/dsh-api-session-controller` | The gateway rejects a wrong argument name with `gateway/arguments-invalid`, which pinned each name |
+| The exact `session/list` result schema — every field name on a list item (`agentAvailable`, `sessionId`, `updatedAt`, `running`, `blank`, `parentSessionId`, `origin`, `projections`) | The controller's own generated result schema (`_deepseek_ai_dsh_api_session_controller_session_list_result$schema`) inside `resources/app.asar` of the desktop install | Field names read from the schema expression, then cross-checked against a live `session/list` response |
+| That `agentAvailable` and `blank` are **two independent fields**, so neither may be derived from the other | The same schema, plus the controller's own comment that the `blank` hint is reconciled against the `sessionListMetadata` projection because it can go stale | Read in the shipped bundle; `tests/conformance.mjs` asserts the list shape stays parseable |
+| Mux frame types (`open`/`item`/`end`/`cancel`, `error`) | `@deepseek-ai/dsh-api-gateway` implementation | Round-tripped real frames (see `tests/dump-events.mjs`) |
+| `$events` opening frame `{type:"ready", clientId, host:{home}}` | Live WebSocket capture | Captured verbatim in `tests/dump-events.mjs` output |
+| Approval is a waterfall event answered through `$events/result` | `@deepseek-ai/dsh-user-approval` and `@deepseek-ai/dsh-api-gateway` implementation | End-to-end approval round trip (`tests/poc-approval.mjs`) |
+| Only `allowed-once` and `rejected` are valid approval outcomes | `OUTCOMES` constant in `@deepseek-ai/dsh-user-approval` | Confirmed by an accepted and a rejected reply |
+| Pairing lives at `/api/pair/*` and is unreachable over `/remote` | `@linxin666/dsh-remote-web-ui` `src/routes.ts` and `src/remote-methods.ts` | `GET /remote/api/pair/status` returns `403 forbidden` |
+| The device credential is a header or cookie named per the plugin config | `src/pairing.ts`, `src/remote-api.ts` in the same plugin | Pairing flow issued a credential that worked as `x-dsh-remote-device` |
+| Event types such as `turn/end`, `assistant/message`, `approval/asked` | Live `session/follow` capture | Recorded in `tests/dump-events.mjs` |
+| The full `turn/end` reason vocabulary — `completed`, `max-tokens`, `aborted`, `interrupted`, `blocked`, `error` (plus a seed-only `forked` that never ends a live turn) | `turnEndToStopReason` in `@deepseek-ai/dsh-acp/codec`, inside `resources/app.asar` | Mapped exhaustively in `PocketViewModel.handleEvent`; a live session ended with `interrupted` |
+| `reasoningEffort` accepts only `off`/`low`/`high`/`max`, and an unsupported value fails with `UNSUPPORTED_REASONING_EFFORT` **before** any network I/O | `@deepseek-ai/dsh-llm` selection validation, inside `resources/app.asar` | Reproduced live: a `turn/end` carried exactly that message and code |
+
+**These are observations of a specific installed version**, not a specification. They can
+change when the desktop or the plugin updates. That is exactly why
+[`tests/conformance.mjs`](../tests/conformance.mjs) exists: it re-checks the contract
+against a live desktop so a version bump fails loudly instead of silently.
+
+**这些是对特定安装版本的观察，不是规范。**版本升级后可能变化——这正是
+`tests/conformance.mjs` 存在的原因。
+
+### Versions observed / 观察到的版本
+
+- DeepSeek Harness desktop shell: `0.2.0-rc.2` (build commit `04f392c9ddd144fa426da2045178797da6db6c11`)
+- `@linxin666/dsh-remote-web-ui`: `0.4.5`
+- Protocol documented in [`docs/protocol.md`](../docs/protocol.md)
+
+---
+
+## 3. Upstream projects examined during the feasibility review / 可行性审查中考察的上游项目
+
+The design brief for this project named three repositories to examine. All three were
+inspected via the public GitHub API and their public pages. **No code was copied from
+any of them.** They are credited here because reading them shaped the architecture
+decisions documented in [`docs/feasibility.md`](../docs/feasibility.md).
+
+| Repository | License | What we took from it |
+|---|---|---|
+| [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness) | MIT | Confirmed the desktop is the execution side and that its plugin/runtime surface is the supported integration point |
+| [`april-jk/dsh-mobile-suite`](https://github.com/april-jk/dsh-mobile-suite) | MIT | Its "Android app + relay + agent" split was evaluated and **rejected** for MVP: a relay adds an attack surface without adding capability once the desktop already exposes an authenticated remote surface |
+| [`sorsama/deepseek-harness-mobile`](https://github.com/sorsama/deepseek-harness-mobile) | MIT | Prior art for a Kotlin + Compose companion over LAN; informed the decision to keep the phone UI thin and Host-authoritative |
+
+Attribution here is courtesy and honesty about influence, not a license obligation —
+no code, comments, or assets were copied.
+
+此处的署名是出于对影响的诚实说明，不是许可义务——没有拷贝任何代码、注释或素材。
+
+---
+
+## 4. Documentation and specifications referenced / 参考的文档与规范
+
+These are public specifications the implementation follows. They are cited because the
+code's behavior is only correct with respect to them.
+
+| Topic | Source |
+|---|---|
+| JSON-RPC-like request/response envelope used by the gateway | The gateway's own `client-request` / `server-response` shapes, documented in [`docs/protocol.md`](../docs/protocol.md) from observation |
+| WebSocket protocol (RFC 6455) | [RFC 6455](https://www.rfc-editor.org/rfc/rfc6455) |
+| HTTP semantics used for the one-shot calls | [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) |
+| Android foreground service types | [Android docs: Foreground service types](https://developer.android.com/develop/background-work/services/fg-service-types) |
+| Android 13+ notification runtime permission | [Android docs: Notification runtime permission](https://developer.android.com/develop/ui/views/notifications/notification-permission) |
+| Android photo picker (used instead of a camera permission) | [Android docs: Photo picker](https://developer.android.com/training/data-storage/shared/photopicker) |
+| Jetpack Compose | [developer.android.com/jetpack/compose](https://developer.android.com/jetpack/compose) |
+| OkHttp WebSocket client | [square.github.io/okhttp](https://square.github.io/okhttp/) |
+| ZXing barcode decoding | [github.com/zxing/zxing](https://github.com/zxing/zxing) |
+| EncryptedSharedPreferences / Jetpack Security | [Android docs: Work with data more securely](https://developer.android.com/privacy-and-security/security-tips) |
+
+---
+
+## 5. What is *our* conclusion, not a sourced fact / 属于本项目判断而非引用事实的部分
+
+To be explicit about the boundary between observation and opinion:
+
+**Observed (can be re-verified against the software):** frame shapes, method names,
+argument names, error codes, the approval outcome vocabulary, the `403` on the pairing
+surface over `/remote`.
+
+**Our judgement (a design decision, not a fact):** that a separate Windows agent is
+unnecessary; that a relay is the wrong default; that the phone should show "unconfirmed"
+rather than "stopped" when the desktop does not answer; that the session list should not
+clear on disconnect. These are argued in [`docs/feasibility.md`](../docs/feasibility.md)
+and [`docs/architecture.md`](../docs/architecture.md), and a reader is free to disagree.
+
+**观察所得**（可对着软件复验）与**本项目的判断**（设计决策）在上表中分开列出，避免把
+观点伪装成事实。
+
+---
+
+## 6. Corrections / 更正
+
+If you believe a claim in this repository misattributes a source, copies code it should
+not, or states a fact incorrectly, please open an issue. Corrections to attribution are
+treated as bugs, not as suggestions.
+
+如果你认为本仓库错误标注了来源、拷贝了不应拷贝的代码，或陈述有误，请开 issue。**来源标注
+错误按 bug 处理，不当作建议。**

@@ -26,8 +26,8 @@ DeepSeek Harness Desktop 本身运行一个 API Gateway（`/api` 一元 + `/api/
 本应用直接对接这套面，不定义任何新协议。好处是：上游修 bug 我们就跟着修好了；上游加
 端点我们改一行就能用；不会出现"应用能用但桌面升级后坏了"的静默漂移。
 
-代价是耦合：插件改帧格式，应用就得改。缓解手段是 `tests/conformance.mjs`——13 项真实
-契约测试，插件升级后跑一遍就知道有没有破。
+代价是耦合：插件改帧格式，应用就得改。缓解手段是 `tests/conformance.mjs`——14 项真实
+契约检查，插件升级后跑一遍就知道有没有破。
 
 ### 2. 不加 Windows 组件
 
@@ -53,13 +53,18 @@ DeepSeek Harness Desktop 本身运行一个 API Gateway（`/api` 一元 + `/api/
 | 编译（debug / release） | ✅ |
 | R8 + 资源收缩 | ✅ 1.72 MB |
 | 协议解析单元测试 | ✅ 8 项 |
-| 与真实电脑的协议一致性 | ✅ 13 项 |
+| 与真实电脑的协议一致性 | ⚠️ 14 项检查中 12 项通过，2 项失败于测试机的模型配置（见下） |
 | 审批链路端到端 | ✅ |
 | APK 签名与对齐 | ✅ |
 | **真机安装运行** | ❌ 开发环境没有连接 Android 设备 |
 | 插件升级兼容性 | ❌ 只对着 0.4.5 验证过 |
 | 多设备同时配对 | ❌ |
 | 通知按钮真机流程 | ❌ |
+
+那 2 项一致性失败的完整原因：测试所用电脑的 `reasoningEffort: high` 与 `gpt-5.2-pro`
+不匹配，桌面在发出请求前就以 `UNSUPPORTED_REASONING_EFFORT` 结束了这一轮；同一台电脑
+更早的会话产出过 49 条 assistant 消息，所以协议链路本身是通的。修法在电脑端配置，
+见 [docs/feasibility.md](docs/feasibility.md) 第 7 节。
 
 未验证的项目不是"应该没问题"，是"没测过"。详见
 [docs/feasibility.md](docs/feasibility.md) 第 8 节。
@@ -83,7 +88,7 @@ JVM 上。
 ## 怎么跑起来
 
 1. 电脑上打开 DeepSeek Harness → 设置 → 远程控制 → 生成配对链接
-2. 手机上安装 `dist/dsh-pocket-0.1.0-release.apk`
+2. 手机上安装 `dist/dsh-pocket-0.1.0.apk`
 3. 粘贴链接或从相册选二维码截图
 
 详见 [docs/windows-setup.md](docs/windows-setup.md)。

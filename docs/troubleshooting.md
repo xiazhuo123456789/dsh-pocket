@@ -63,6 +63,35 @@ DeepSeek Harness 启动时重新分配，旧链接随之失效。
 - 点设置里的「重新连接」
 - 或者退出重进应用（会自动重连并重新 follow 最近会话）
 
+## 任务
+
+### 任务发出去了，但一点回复都没有，状态显示「失败」
+
+先看错误条里的原文。应用会把电脑报告的 `turn/end.reason.error.message` 逐字显示出来，
+那句英文通常已经说明了原因。最常见的一种：
+
+```
+provider "…" model "…" does not support reasoning effort "high"
+（错误码 UNSUPPORTED_REASONING_EFFORT）
+```
+
+这不是手机的问题，也不是协议的问题。桌面端的模型配置要求了一个该模型不支持的推理强度，
+于是在**发出任何网络请求之前**就结束了这一轮。修法在电脑上：打开
+`~/.dsh/profiles/desktop/cordis.patch.yml`，把 `agent-default-model` 段的
+`reasoningEffort` 去掉，或者换成该模型声明支持的档位（`off` / `low` / `high` / `max`），
+然后在 DeepSeek Harness 里重新加载配置。
+
+判断依据很简单：如果错误文本来自电脑（带错误码），改电脑；如果应用显示的是
+「无法连接」这类自身文案，那是链路问题，看上一节。
+
+### `conformance.mjs` 有两项失败，其他都过
+
+那两项是「收到 assistant 消息」和「这一轮没有在电脑端失败」。它们同时失败、且错误码为
+`UNSUPPORTED_REASONING_EFFORT` 时，就是上面那个原因——改电脑配置后重跑即可。
+
+这两项是**故意**加进去的：它们把「契约坏了」和「电脑自己拒了这一轮」区分开，因为两者
+表现完全相同（都没有 assistant 消息），但修法相反。
+
 ## 审批
 
 ### 通知上的审批按钮点了没反应

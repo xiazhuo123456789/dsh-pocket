@@ -40,14 +40,28 @@ import dev.dshpocket.data.AppSettings
 import dev.dshpocket.data.PairedDesktop
 
 /**
- * Settings, mirroring the design document's list: relay/base address, live
- * connection status, notification toggles, authorized-device management and
- * version/licence.
+ * Settings.
  *
- * Revocation is deliberately honest: the phone can only drop *its own*
- * credential. Removing the pairing on the desktop side is the authoritative
- * revoke, so the copy says so instead of implying the phone can revoke itself
- * out of the desktop's device list.
+ * ### Why the revocation copy is worded so carefully
+ *
+ * The phone **cannot revoke itself** from the desktop's device list. The
+ * pairing-management surface is deliberately unreachable from a
+ * paired remote device, so `revoke` only works from the desktop's own loopback
+ * origin. What this screen can do is delete the local credential, which stops
+ * *this phone* from authenticating — but the desktop still lists the device until
+ * someone removes it there.
+ *
+ * Presenting "unpair" as if it were a full revoke would be a security-relevant
+ * lie: a user who thinks they revoked a lost phone would leave a live credential
+ * in the desktop's list. The confirmation dialog therefore states both halves
+ * explicitly.
+ *
+ * ### Why the device id is shown
+ *
+ * It is the identifier the desktop's device list displays, so showing it lets a
+ * user match this phone to an entry when they go to revoke it. It is a credential,
+ * so it is only ever displayed here, on an explicitly opened settings screen —
+ * never logged, never in a notification.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +76,10 @@ fun SettingsScreen(
     onReconnect: () -> Unit,
     onUnpair: () -> Unit,
 ) {
+    // Local dialog visibility only. The confirmation is deliberately not a
+    // ViewModel concern: it is a transient UI step, and if the screen is recreated
+    // the dialog closing is the safe default (the destructive action must be asked
+    // again, never resumed).
     var confirmUnpair by remember { mutableStateOf(false) }
 
     if (confirmUnpair) {
@@ -69,6 +87,10 @@ fun SettingsScreen(
             onDismissRequest = { confirmUnpair = false },
             title = { Text("断开并清除凭据？") },
             text = {
+                // Both halves are stated because they are genuinely different
+                // operations, and conflating them is the security-relevant lie this
+                // screen exists to avoid: clearing locally does NOT revoke the
+                // device on the desktop, so a lost phone would keep a live grant.
                 Text(
                     "本机保存的配对凭据会被删除，需要重新配对才能继续控制电脑。\n" +
                         "要彻底撤销这台手机，请在电脑的「远程控制」里删除该设备。"
@@ -104,12 +126,18 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
         ) {
+            // ---- Connection ----------------------------------------------------
+            // Everything here is read-only observational data. No control lives in
+            // this section except the two explicit buttons below it, so a user
+            // scrolling past cannot change the connection by accident.
             SectionLabel("连接", Modifier.padding(start = 16.dp, top = 12.dp))
 
             InfoRow(
                 label = "服务器地址",
                 value = paired?.baseUrl ?: "未配对",
             )
+            // The status row is colour-coded with the same semantic tokens the
+            // banner uses, so "green means the desktop said so" holds everywhere.
             InfoRow(
                 label = "状态",
                 value = when (connection.phase) {
@@ -125,8 +153,13 @@ fun SettingsScreen(
                     Phase.Disconnected -> PocketColors.muted
                 },
             )
+            // The desktop's home directory comes from the `$events` ready frame.
+            // It is the cheapest way to answer "am I actually talking to *my*
+            // machine, or to some other tunnel endpoint?".
             connection.hostHome?.let { InfoRow(label = "电脑主目录", value = it) }
             connection.error?.let { InfoRow(label = "最近错误", value = it, valueColor = PocketColors.bad) }
+            // Shown only on this explicitly opened screen. It is a credential
+            // component: never logged, never in a notification.
             InfoRow(label = "本机设备 ID", value = paired?.deviceId ?: "—")
 
             Row(
@@ -135,6 +168,8 @@ fun SettingsScreen(
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Retry without re-pairing: the credential is usually still valid
+                // and the failure is usually that the desktop was asleep.
                 TextButton(onClick = onReconnect, enabled = paired != null) { Text("重新连接") }
                 TextButton(onClick = { confirmUnpair = true }, enabled = paired != null) {
                     Text("断开并清除凭据", color = PocketColors.bad)
@@ -142,6 +177,11 @@ fun SettingsScreen(
             }
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            // ---- Notifications -------------------------------------------------
+            // Three independent switches rather than one master toggle: the three
+            // events have very different urgency, and a user who finds the
+            // connection notifications noisy should not have to give up being told
+            // when the desktop is blocked on them.
             SectionLabel("通知", Modifier.padding(start = 16.dp))
 
             SwitchRow(
@@ -164,6 +204,10 @@ fun SettingsScreen(
             )
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            // ---- Security ------------------------------------------------------
+            // This paragraph is the security disclosure. It is deliberately not
+            // collapsed behind a link: "the credential is full control of your
+            // computer" is the single most important thing to know about this app.
             SectionLabel("安全", Modifier.padding(start = 16.dp))
             Text(
                 "配对凭据等同于电脑的完整控制权限。它保存在本机的加密存储中，不参与系统备份，" +
@@ -174,6 +218,12 @@ fun SettingsScreen(
             )
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            // ---- About ---------------------------------------------------------
+            // The last paragraph matters for expectation-setting and for legal
+            // clarity: this app performs no inference and executes nothing. The
+            // licence line is MIT because that is what this repository ships under;
+            // the protocol line names the upstream surface, so nobody mistakes this
+            // for an official DeepSeek product.
             SectionLabel("关于", Modifier.padding(start = 16.dp))
             InfoRow(label = "版本", value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             InfoRow(label = "许可证", value = "MIT")
@@ -190,6 +240,13 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * One label/value pair.
+ *
+ * `maxLines = 4` with ellipsis rather than wrapping indefinitely: an error string
+ * from the gateway can be long, and letting it grow would push the rest of the
+ * screen off the bottom.
+ */
 @Composable
 private fun InfoRow(
     label: String,
@@ -213,6 +270,12 @@ private fun InfoRow(
     }
 }
 
+/**
+ * A labelled switch row.
+ *
+ * The whole row is not clickable on purpose — the switch itself is the target, so
+ * scrolling the list cannot flip a setting by accident.
+ */
 @Composable
 private fun SwitchRow(
     title: String,

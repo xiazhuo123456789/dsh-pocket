@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,17 +37,45 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.dshpocket.core.ConnectionState
 import dev.dshpocket.core.SessionSummary
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * The session list: the first screen after pairing.
+ *
+ * A "session" is a Harness conversation living on the desktop. This screen only
+ * mirrors what `session/list` reports; it never invents an entry, never reorders
+ * by anything except the Host's `updatedAt`, and never marks a session as
+ * running on its own. The `running` flag is the desktop's own answer.
+ *
+ * Why the FAB is "new session" rather than "new chat": creating a session is a
+ * real Host-side operation (`session/create`) that allocates a working directory
+ * and an agent preset. Keeping the two concepts separate stops the UI from
+ * implying that a local draft exists before the desktop agreed to one.
+ *
+ * @param sessions   Host-reported summaries, newest first as the Host ordered them.
+ * @param loading    True while a `session/list` round-trip is in flight; shows a
+ *                   spinner in place of the refresh button so the control cannot
+ *                   be double-fired.
+ * @param connection Drives [ConnectionBanner]; a stale list stays visible behind
+ *                   an error banner rather than being cleared, so a transient
+ *                   disconnect does not look like "all your sessions are gone".
+ * @param onOpen     Called with a session id; the caller follows that session.
+ * @param onNew      Called when the user asks for a fresh session.
+ * @param onRefresh  Manual re-list. The ViewModel also refreshes after every
+ *                   `turn/end`, so this is for the "I changed something on the
+ *                   desktop" case.
+ * @param onSettings Opens the settings route.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SessionsScreen(
     sessions: List<SessionSummary>,
     loading: Boolean,
-    connection: dev.dshpocket.core.ConnectionState,
+    connection: ConnectionState,
     onOpen: (String) -> Unit,
     onNew: () -> Unit,
     onRefresh: () -> Unit,
@@ -57,6 +86,9 @@ fun SessionsScreen(
             TopAppBar(
                 title = { Text("会话") },
                 actions = {
+                    // Swap the refresh affordance for a spinner instead of
+                    // disabling it: a greyed-out icon reads as "broken", while
+                    // a spinner reads as "working".
                     if (loading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
@@ -82,7 +114,9 @@ fun SessionsScreen(
         },
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
+            // Rendered above the list, not instead of it: see `connection` above.
             ConnectionBanner(connection.phase, connection.baseUrl, connection.error)
+
             if (sessions.isEmpty()) {
                 EmptyState(
                     title = "还没有会话",
@@ -92,11 +126,16 @@ fun SessionsScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    // The bottom inset leaves room for the FAB so the last row
+                    // is never permanently covered by it.
+                    contentPadding = PaddingValues(
                         start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp,
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    // `key` is the session id, not the index: when the Host
+                    // reorders the list after a turn finishes, Compose moves the
+                    // existing rows instead of rebuilding every one of them.
                     items(sessions, key = { it.id }) { s ->
                         SessionRow(s, onClick = { onOpen(s.id) })
                     }
@@ -106,6 +145,12 @@ fun SessionsScreen(
     }
 }
 
+/**
+ * One tappable session row.
+ *
+ * Layout note: the status dot sits outside the text column so the title can wrap
+ * to two lines without pushing the dot out of alignment.
+ */
 @Composable
 private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
     Surface(
@@ -119,6 +164,8 @@ private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
             Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // Accent = the desktop says this session has a turn in flight.
+            // Muted = anything else, including "we don't know yet".
             Box(
                 Modifier
                     .size(8.dp)
@@ -130,6 +177,9 @@ private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
+                    // A session can legitimately have no title yet (the desktop
+                    // generates one after the first turn), so this is a display
+                    // fallback, not a claim that the session is unnamed.
                     text = session.title?.takeIf { it.isNotBlank() } ?: "未命名会话",
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 2,
@@ -149,6 +199,16 @@ private fun SessionRow(session: SessionSummary, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Compact timestamp for a list row.
+ *
+ * Today's entries show only the clock time; older ones gain the date. The cutoff
+ * is a rolling 24 hours rather than a calendar-day boundary, because "yesterday
+ * at 23:50" is more confusing than "10-16 23:50" when read at 00:10.
+ *
+ * Returns an empty string for a non-positive timestamp, which is what the Host
+ * reports for a session that has never been touched.
+ */
 private fun formatTime(ms: Long): String {
     if (ms <= 0) return ""
     val now = System.currentTimeMillis()

@@ -11,6 +11,24 @@
 // live *contract*.
 //
 // Nothing here is a mock. If the desktop is not running, it fails loudly.
+//
+// ## Passing needs a *working* desktop model, not just a running desktop
+//
+// Everything above check 9 is about the transport and passes against any paired
+// desktop. The two turn checks additionally need the desktop's agent to be able
+// to answer, so they fail when the desktop's own provider/model configuration is
+// broken — e.g. a profile asking for `reasoningEffort: high` on a model that does
+// not advertise it ends the turn with
+// `{kind:"error", code:"UNSUPPORTED_REASONING_EFFORT"}` before any network I/O.
+// That is a real, useful failure, but it is *not* a phone bug: the phone relays
+// the desktop's `reason.error.message` verbatim (see `handleEvent` in
+// `core/PocketViewModel.kt`), which is precisely what you want to read here.
+// Fix the desktop profile and re-run; do not "fix" the app.
+//
+// Getting the two arguments:
+//   node -e "…POST /api/pair/issue then /api/pair/accept…"   // see docs/troubleshooting.md
+// Both the token and the resulting deviceId are credentials — keep them out of
+// commits, screenshots and issue reports.
 
 const [, , BASE = 'http://127.0.0.1:19387', DEVICE] = process.argv
 
@@ -164,8 +182,18 @@ async function main() {
 
   // Wait for the completion signal. `turn/end` is the only thing allowed to
   // move the phone's status to "done", so its presence is what we assert.
+  //
+  // `endReason` is captured so a *failed turn* can be told apart from a
+  // *broken contract*. Those look identical if you only check for a missing
+  // assistant message, and they need opposite fixes: a broken contract means
+  // this harness or the app is wrong, while `reason.kind === "error"` means the
+  // desktop answered fine and its own model/provider setup refused the turn
+  // (observed here as `UNSUPPORTED_REASONING_EFFORT` when the desktop profile
+  // asked for an effort the configured model does not advertise). Reporting the
+  // reason turns a bare FAIL into something actionable.
   let sawAssistant = false
   let sawTurnEnd = false
+  let endReason = null
   const deadline = Date.now() + 180_000
   while (Date.now() < deadline && !sawTurnEnd) {
     const frame = await Promise.race([follow.next(), sleep(2000).then(() => 'tick')])
@@ -177,11 +205,25 @@ async function main() {
         const text = JSON.stringify(v.event.data ?? {})
         if (text.includes('CONFORMANCE')) sawAssistant = true
       }
-      if (v.event?.type === 'turn/end') sawTurnEnd = true
+      if (v.event?.type === 'turn/end') {
+        sawTurnEnd = true
+        endReason = v.event.data?.reason ?? null
+      }
     }
   }
-  check('assistant/message arrives on the followed stream', sawAssistant)
+  check(
+    'assistant/message arrives on the followed stream',
+    sawAssistant,
+    sawAssistant ? undefined : `turn ended with reason=${JSON.stringify(endReason)}`,
+  )
   check('turn/end arrives (the completion signal the UI waits for)', sawTurnEnd)
+  check(
+    'the turn itself did not fail inside the desktop',
+    endReason?.kind !== 'error',
+    endReason?.kind === 'error'
+      ? `desktop reported: ${endReason.error?.message ?? 'unknown'} (${endReason.error?.code ?? 'no code'}) - fix the desktop provider/model config, not the phone`
+      : undefined,
+  )
 
   // ---- 6. cancel is acknowledged -----------------------------------------
   const cancel = await rpc('session/cancel', { request: { sessionId: sid } })

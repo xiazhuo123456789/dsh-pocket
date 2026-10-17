@@ -38,8 +38,9 @@
 
 ## 2. 本机 Desktop 的实际形态（已实测）
 
-安装：`<安装目录>\`，版本文件 `44.0.0`，桌面壳
-`@deepseek-ai/dsh-desktop@0.2.0-rc.2`，运行时清单显示 node 24.21.0 / pnpm 11.7.0。
+安装位置：`<安装目录>\`（本文档记录时安装在本机 `E:\xiazhuo\deepseek Harness\`，路径随
+用户选择而变），版本文件 `44.0.0`，桌面壳 `@deepseek-ai/dsh-desktop@0.2.0-rc.2`，运行时
+清单显示 node 24.21.0 / pnpm 11.7.0。
 
 **关键发现：Desktop 是一个 Electron 壳 + `dsh --profile <name>` CLI + 可插拔 profile。**
 
@@ -91,7 +92,8 @@ Cloudflare quick tunnel。运行态证据：进程树里
 
 ### 3.3 实际验证
 
-在协议层跑通了完整闭环（`tests/conformance.mjs`，13 项全绿）：
+在协议层跑通了完整闭环（`tests/conformance.mjs`）。下面是**最后一次**回归的真实输出，
+逐行照抄，包括失败项：
 
 ```
 PASS  unpaired device is refused (403)
@@ -102,17 +104,42 @@ PASS  $events opens with a ready frame carrying clientId + host.home
 PASS  session/create returns a sessionId
 PASS  session/follow opens with a snapshot for the right session
 PASS  session/prompt is accepted
-PASS  assistant/message arrives on the followed stream
+FAIL  assistant/message arrives on the followed stream — turn ended with
+      reason={"kind":"error","error":{"message":"provider \"newapi\" model
+      \"gpt-5.2-pro\" does not support reasoning effort \"high\"",
+      "code":"UNSUPPORTED_REASONING_EFFORT"}}
 PASS  turn/end arrives (the completion signal the UI waits for)
+FAIL  the turn itself did not fail inside the desktop — desktop reported:
+      provider "newapi" model "gpt-5.2-pro" does not support reasoning effort
+      "high" (UNSUPPORTED_REASONING_EFFORT) - fix the desktop provider/model
+      config, not the phone
 PASS  session/cancel is acknowledged
 PASS  $events/result rejects an unknown clientId
 PASS  mux survives past the 2s heartbeat interval
 ```
 
+**12 项通过、2 项失败。** 两条失败是同一个原因，且都不是本应用的缺陷：
+
+- 电脑端的 `cordis.patch.yml` 里 `agent-default-model.reasoningEffort: high`，而该
+  provider 下的 `gpt-5.2-pro` 没有声明支持这个档位。桌面在发出任何网络请求**之前**就
+  以 `UNSUPPORTED_REASONING_EFFORT` 结束了这一轮。
+- 同一台电脑上更早的会话（`session-3354fc48…`）记录着 49 条 `assistant/message`、末次
+  `turn/end.reason.kind` 为 `interrupted`，说明"任务提交 → 流式回复 → 结束信号"这条
+  路径在模型配置可用时确实是通的。
+- 因此缺的是**当前模型配置下的一次完整回归**，不是协议实现。修法在电脑端改配置，
+  不该改手机。本项目没有去动那台电脑的配置——那是用户的运行环境，不是本仓库的产物。
+
+为了让这类失败可被正确归因，回归带来了两处改动：
+
+1. `PocketViewModel` 把 `turn/end.reason.error.message` 原文透传到界面错误条
+   （原来只显示一个"失败"状态，把用户唯一能据以修正的那句话丢了）
+2. `conformance.mjs` 新增一项检查，把"契约坏了"和"电脑自己拒了这一轮"分开报
+
 审批链路单独验证过（`tests/poc-approval.mjs`）：`approval/request` waterfall 帧到达 →
 回 `$events/result` → Host 落 `approval/decided outcome:"allowed-once"`。
 
-**结论：MVP 功能表的每一项都有对应的受支持接口。**
+**结论：MVP 功能表的每一项都有对应的受支持接口。** 其中"提交任务并收到回复"这一项的
+端到端回归受测试机模型配置阻塞，已如实记为未验证项（见第 8 节）。
 
 ## 4. 是否需要独立 Windows 组件
 
@@ -162,9 +189,26 @@ PASS  mux survives past the 2s heartbeat interval
 6. ✅ UI：配对 / 会话列表 / 聊天 / 设置
 7. ✅ 通知 + 通知内审批操作 + 前台服务
 8. ✅ 单元测试（8 项协议解析）
-9. ✅ 一致性测试（13 项真实契约）
+9. ✅ 一致性测试（14 项真实契约检查）
 10. ✅ Release APK（1.72 MB，R8 + 资源收缩）
 11. ✅ 文档（架构 / 协议 / 电脑端 / 构建 / 排障 / 安全）
+
+其中第 9 项最后一次回归的结果是 **12 项通过、2 项失败**，两次失败都不是本应用的问题：
+
+- `assistant/message arrives on the followed stream` —— 这一轮在电脑端就失败了，没有
+  产出任何 assistant 消息
+- `the turn itself did not fail inside the desktop` —— 新增的检查，专门把这个原因显式
+  报出来
+
+原因是测试所用电脑的模型配置不可用：`cordis.patch.yml` 里
+`agent-default-model.reasoningEffort: high`，而该 provider 下的 `gpt-5.2-pro` 没有声明
+支持这个档位，桌面在发出任何网络请求之前就返回
+`UNSUPPORTED_REASONING_EFFORT`。**同样的这台电脑上更早的会话产出过 49 条
+`assistant/message`**，所以协议链路本身是通的，缺的只是"当前模型配置下的一次完整回归"。
+
+本项目**没有**去改这台电脑的配置——那是用户的运行环境，不是本仓库的产物。取而代之的
+改动是让失败可归因：`PocketViewModel` 现在把 `turn/end.reason.error.message` 原文透传到
+界面的错误条，一致性测试也把"链路坏了"和"电脑自己拒了这一轮"分开报。
 
 ## 8. 无法验证的部分
 
@@ -173,6 +217,9 @@ PASS  mux survives past the 2s heartbeat interval
 - **未在真机上安装运行过。** 本机没有连接 Android 设备（`adb devices` 为空），
   APK 的编译、签名、单元测试、协议一致性都验证了，但 UI 的实际渲染与触摸行为没有
   在物理手机上确认过。
+- **未在可用的模型配置下跑通完整一轮对话。** 见第 7 节说明：最后一次回归的 14 项
+  检查里有 2 项失败，原因是测试机的 `reasoningEffort` 与模型不匹配。协议链路本身
+  （配对、鉴权、mux、`$events`、follow、prompt、cancel、心跳）全部通过。
 - **未验证插件升级后的兼容性。** 当前对着 `0.4.5` 验证。插件若改帧格式，需要重新
   跑 `conformance.mjs`。
 - **未验证 named tunnel 配置**（固定地址）。当前只验证了 quick tunnel。

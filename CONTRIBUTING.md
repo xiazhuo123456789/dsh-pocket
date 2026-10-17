@@ -97,9 +97,11 @@ node tests/conformance.mjs http://127.0.0.1:19387 <deviceId>
 
 1. 更新 `app/build.gradle.kts` 的 `versionCode` / `versionName`
 2. `./gradlew :app:assembleRelease`
-3. 把 APK 放进 `dist/`，命名 `dsh-pocket-<version>-release.apk`
-4. 打 tag `v<version>`，写 release notes
-5. 附上 APK
+3. 把 APK 放进 `dist/`，命名 `dsh-pocket-<version>.apk`；debug 包命名
+   `dsh-pocket-<version>-debug.apk`
+4. 更新 `dist/README.md` 里的文件名、大小与 SHA-256（`sha256sum` 算，不要凭记忆写）
+5. 打 tag `v<version>`，写 release notes
+6. 附上 APK，release notes 里贴出同一个 SHA-256 让下载者核对
 
 ## 许可证
 

@@ -4,9 +4,29 @@ import dev.dshpocket.data.AppSettings
 import dev.dshpocket.data.PairedDesktop
 import dev.dshpocket.protocol.ApprovalRequest
 
-/** Coarse connection health shown in the app bar and used for notifications. */
+/**
+ * Coarse connection health.
+ *
+ * Four states, not a boolean, because "not connected" has two very different
+ * causes that need different UI: we are *trying* ([Connecting]) versus we *tried and
+ * failed* ([Error], which carries a message). A boolean would force the error text
+ * to be inferred from some other field.
+ */
 enum class Phase { Disconnected, Connecting, Connected, Error }
 
+/**
+ * What the UI knows about the link to the desktop.
+ *
+ * @param baseUrl the origin actually in use (e.g. `https://x.trycloudflare.com`);
+ *   shown in the connection banner so a user can tell *which* desktop they reach
+ *   when they have more than one.
+ * @param deviceId the identifier the desktop's device list shows. Displayed in
+ *   settings only — it is part of the credential, so it never goes to logs.
+ * @param error a human-readable failure already shaped for display. `null` while
+ *   healthy; this is the single field the banner reads.
+ * @param hostHome the desktop's home directory, taken from the `$events` `ready`
+ *   frame. Used for nothing but making "which machine am I talking to" concrete.
+ */
 data class ConnectionState(
     val phase: Phase = Phase.Disconnected,
     val baseUrl: String? = null,
@@ -17,7 +37,19 @@ data class ConnectionState(
     val isConnected: Boolean get() = phase == Phase.Connected
 }
 
-/** One row in the session list. */
+/**
+ * One row in the session list.
+ *
+ * Mirrors `session/list` output one-for-one. Nothing is invented here: if the
+ * desktop did not report a title, [title] stays `null` and the UI renders a
+ * placeholder, rather than us synthesising a name the desktop never used.
+ *
+ * @param running the Host's own view of whether a turn is in flight. It is the
+ *   source for the running dot *and* for keeping the foreground service alive, so
+ *   it is deliberately not optimistic.
+ * @param agentAvailable false when the session's agent preset is missing on this
+ *   desktop; the UI disables sending rather than failing at submit time.
+ */
 data class SessionSummary(
     val id: String,
     val title: String?,
@@ -27,7 +59,17 @@ data class SessionSummary(
     val agentAvailable: Boolean,
 )
 
-/** A single rendered bubble in the conversation. */
+/**
+ * A single rendered bubble in the conversation.
+ *
+ * @param key stable identity for the `LazyColumn`. Built from the record's own
+ *   event identity so a re-delivered frame updates a row instead of appending a
+ *   duplicate.
+ * @param streaming true only for the synthetic in-progress bubble, which is not an
+ *   item of [ChatState.items] but is rendered after them.
+ * @param toolName set only for [Role.Tool]; surfaced as the "工具 · …" label so a
+ *   long transcript still shows *which* tool ran.
+ */
 data class ChatItem(
     val key: String,
     val role: Role,
@@ -36,15 +78,31 @@ data class ChatItem(
     val isError: Boolean = false,
     val toolName: String? = null,
 ) {
+    /**
+     * [System] exists for transcript notices the Host itself inserted; it is not
+     * used for local UI messages, which go through [ChatState.error] instead.
+     */
     enum class Role { User, Assistant, Tool, System }
 }
 
 /**
- * Everything the chat screen needs. [status] is derived from the Host's own
- * signals — `api-session/status` for running, `turn/end.reason` for the
- * outcome, `approval/asked` for the pending prompt — never from optimistic
- * local guesses. This is what makes "stop" verifiable: [stopState] only leaves
- * [StopState.None] once the Host has acknowledged.
+ * Everything the chat screen needs.
+ *
+ * ### The invariant
+ *
+ * [status] is derived from the Host's own signals — `api-session/status` for
+ * running, `turn/end.reason` for the outcome, `approval/request` for a pending
+ * prompt — and **never** from an optimistic local guess. Concretely: tapping send
+ * does not set `Running`; the app waits for the Host to say the turn started.
+ *
+ * This is what makes stopping verifiable. [stopState] only leaves
+ * [StopState.None] once a cancel RPC has been *accepted*, and only reaches
+ * [StopState.Confirmed] when a `turn/end` arrives afterwards. There is no code path
+ * that sets `Confirmed` from a button press.
+ *
+ * @param streamingText the in-progress assistant text, kept separate from [items]
+ *   so each delta does not rebuild the whole list.
+ * @param approval the prompt currently awaiting an answer, or `null`.
  */
 data class ChatState(
     val sessionId: String? = null,
@@ -56,8 +114,29 @@ data class ChatState(
     val stopState: StopState = StopState.None,
     val error: String? = null,
 ) {
+    /**
+     * [Done], [Failed] and [Cancelled] all mean "no turn is in flight" but differ in
+     * *why*, and the difference is user-visible: the stop banner must not appear for
+     * a task that finished on its own.
+     *
+     * `Done` deliberately covers two `turn/end` reasons: `completed` and
+     * `max-tokens`. Running out of the model's token budget is a turn that *ended*,
+     * not one that broke, and the honest thing to show is a finished turn rather
+     * than an error banner the user cannot act on. See the `newStatus` mapping in
+     * `PocketViewModel.handleEvent`.
+     */
     enum class Status { Idle, Queued, Running, AwaitingApproval, Done, Failed, Cancelled }
 
+    /**
+     * The stop lifecycle. Four values because a pressed button is not a stopped
+     * task.
+     *
+     * `None → Requested` on a successful cancel call. From there exactly two
+     * transitions exist: `Requested → Confirmed` when a `turn/end` arrives, and
+     * `Requested → Unconfirmed` when the 15 s watchdog fires first. `Unconfirmed` is
+     * terminal for that attempt and tells the user the task may still be running —
+     * which is the truth, and the whole reason this enum is not a boolean.
+     */
     enum class StopState {
         /** No cancel in flight. */
         None,
@@ -73,11 +152,24 @@ data class ChatState(
     }
 }
 
+/**
+ * Pending approvals.
+ *
+ * A queue rather than a single slot: the desktop can raise a second request while
+ * the first is unanswered, and dropping one would silently unblock nothing. [current]
+ * is what the UI renders.
+ */
 data class ApprovalState(val pending: List<ApprovalRequest> = emptyList()) {
     val current: ApprovalRequest? get() = pending.firstOrNull()
 }
 
-/** Immutable snapshot the whole UI renders from. */
+/**
+ * The immutable snapshot the whole UI renders from.
+ *
+ * One object instead of several independent flows, so a screen can never observe a
+ * connection state from before a reconnect together with a session list from after
+ * it. The ViewModel publishes whole snapshots; Compose diffs them.
+ */
 data class UiState(
     val connection: ConnectionState = ConnectionState(),
     val sessions: List<SessionSummary> = emptyList(),
