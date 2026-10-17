@@ -76,23 +76,45 @@ private val DarkColors = darkColorScheme(
     onPrimaryContainer = Color(0xFF0A0F1A),
     secondary = Green500,
     onSecondary = Color(0xFF04220F),
+    secondaryContainer = Neutral800,
+    onSecondaryContainer = Neutral50,
     background = Neutral1000,
     onBackground = Neutral50,
     // 表面分层：surface 是第一层抬高的卡片底色
-    surface = Neutral875,
+    surface = Neutral950,
     onSurface = Neutral50,
     surfaceVariant = Neutral800,
     onSurfaceVariant = Neutral400,
+    // ---- 分层表面 ----
+    // 桌面端用 `--dsw-alias-bg-layer-0..3` 拉开层次，而不是靠阴影。Material3 的
+    // `surfaceContainer*` 就是对应槽位：数字越大越靠近用户、表面越亮。补全它们
+    // 之后，Card / Surface / BottomSheet 会自动获得正确的色阶，不需要每个组件
+    // 手写颜色，也不会出现"卡片和背景一个颜色"的塌陷。
+    surfaceContainerLowest = Neutral1000,
+    surfaceContainerLow = Neutral950,
+    surfaceContainer = Neutral900,
+    surfaceContainerHigh = Neutral875,
+    surfaceContainerHighest = Neutral850,
+    surfaceDim = Color(0xFF0B0D10),
+    surfaceBright = Neutral850,
     error = Red400,
     onError = Color(0xFF2A0808),
+    errorContainer = Color(0xFF4A1D1D),
+    onErrorContainer = Color(0xFFFFD9D6),
     outline = Neutral750,
     outlineVariant = Neutral800,
+    inverseSurface = Neutral50,
+    inverseOnSurface = Neutral900,
+    scrim = Color(0xFF000000),
 )
 
 /**
  * 浅色方案。
  *
  * 状态色 ([PocketColors]) 在两个方案里共享；它们在浅暗表面上都可读。
+ *
+ * 浅色同样补全了 `surfaceContainer*` 阶梯 —— 深色主题里层次靠"越来越亮"，
+ * 浅色里就必须靠"越来越灰"，否则白卡片叠白背景会糊成一片。
  */
 private val LightColors = lightColorScheme(
     primary = DsBlue500,
@@ -101,16 +123,30 @@ private val LightColors = lightColorScheme(
     onPrimaryContainer = Color(0xFF283142),
     secondary = Green500,
     onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFDCF5E8),
+    onSecondaryContainer = Color(0xFF04321F),
     background = Neutral50,
     onBackground = Neutral900,
     surface = Neutral00,
     onSurface = Neutral900,
     surfaceVariant = Neutral100,
     onSurfaceVariant = Neutral600,
+    surfaceContainerLowest = Neutral00,
+    surfaceContainerLow = Neutral50,
+    surfaceContainer = Neutral100,
+    surfaceContainerHigh = Color(0xFFE7EAEE),
+    surfaceContainerHighest = Color(0xFFDDE1E6),
+    surfaceDim = Color(0xFFE3E6EA),
+    surfaceBright = Neutral00,
     error = Red500,
     onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFDAD6),
+    onErrorContainer = Color(0xFF410002),
     outline = Neutral300,
     outlineVariant = Neutral100,
+    inverseSurface = Neutral900,
+    inverseOnSurface = Neutral50,
+    scrim = Color(0xFF000000),
 )
 
 /**

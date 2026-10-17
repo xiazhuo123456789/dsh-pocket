@@ -209,7 +209,14 @@ fun ChatScreen(
             StopBanner(state.stopState)
 
             Box(Modifier.weight(1f)) {
-                if (state.items.isEmpty() && state.streamingText.isEmpty()) {
+                if (state.items.isEmpty() && state.streamingText.isEmpty() && state.loadingHistory) {
+                    // The desktop has not answered with a snapshot yet. Showing the
+                    // "把任务发给电脑" placeholder here would claim the conversation is
+                    // empty when the truth is that we have not been told — and that
+                    // misreading is exactly what makes a slow tunnel look like data
+                    // loss.
+                    LoadingHistory()
+                } else if (state.items.isEmpty() && state.streamingText.isEmpty()) {
                     // Empty is only ever "this session has no messages yet". A load
                     // failure reaches the user through the error strip above, so an
                     // empty transcript is never ambiguous with "we could not ask".
@@ -292,6 +299,35 @@ fun ChatScreen(
                 onStop = { confirmStop = true },
             )
         }
+    }
+}
+
+/**
+ * Placeholder shown while the desktop's history snapshot is still in flight.
+ *
+ * Deliberately distinct from [EmptyState]: the shape ("we are waiting") and the
+ * copy ("正在读取电脑上的记录") both have to say that the transcript is not empty,
+ * it is unknown. Conflating the two is what makes a slow connection read as
+ * "my messages are gone".
+ */
+@Composable
+private fun LoadingHistory() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(28.dp),
+            strokeWidth = 2.5.dp,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "正在读取电脑上的记录…",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

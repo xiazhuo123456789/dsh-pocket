@@ -116,6 +116,23 @@ class PocketViewModel(
      */
     private var activeSessionId: String? = null
 
+    /**
+     * Texts this client has already painted as optimistic user bubbles and is
+     * waiting for the desktop to echo back.
+     *
+     * FIFO, because the desktop emits `user/message` echoes in the order it
+     * accepted the prompts. `send` appends, the `user/message` handler pops the
+     * head on an exact match. See [send] for why a hash-keyed lookup was the
+     * wrong approach.
+     *
+     * Cleared by [openSession]/[closeSession]: switching conversations means the
+     * backlog no longer describes anything on screen.
+     */
+    private val pendingUserTexts = ArrayDeque<String>()
+
+    /** Monotonic counter for local bubble keys — never reused, never a hash. */
+    private var nextLocalSeq: Long = 0L
+
     init {
         // Mirror persisted settings into the snapshot so the UI has exactly one
         // object to read rather than combining flows itself.
@@ -380,12 +397,17 @@ class PocketViewModel(
      * navigates back. If creation throws, no session exists and the error is
      * surfaced rather than swallowed — a silent failure here would leave the user
      * staring at an unchanged list.
+     *
+     * @param cwd the desktop working directory the new file belongs to, or `null`
+     *   to accept whatever default the desktop picks. Supplying it is what makes
+     *   the phone's "新建文件" land in the folder the user chose instead of
+     *   scattering new sessions into an invisible default.
      */
-    fun newSession() {
+    fun newSession(cwd: String? = null) {
         val api = api ?: return
         scope.launch {
             try {
-                val sessionId = api.create()
+                val sessionId = api.create(cwd = cwd?.takeIf { it.isNotBlank() })
                 refreshSessions()
                 openSession(sessionId)
             } catch (e: CancellationException) {
@@ -426,7 +448,19 @@ class PocketViewModel(
         followHandle?.cancel()
         followHandle = null
         activeSessionId = sessionId
-        _state.update { it.copy(chat = ChatState(sessionId = sessionId)) }
+        // A queue from a previous conversation describes bubbles that are no
+        // longer on screen; keeping it would retag the wrong bubble.
+        pendingUserTexts.clear()
+        // Both fields move together: `openSessionId` drives navigation (what the
+        // user sees), `chat.sessionId` drives data (whose history is loaded).
+        _state.update {
+            it.copy(
+                openSessionId = sessionId,
+                // `loadingHistory = true` until the snapshot arrives: an empty
+                // transcript here means "not answered yet", not "no messages".
+                chat = ChatState(sessionId = sessionId, loadingHistory = true),
+            )
+        }
         scope.launch { settings.setLastSession(sessionId) }
 
         chatJob = scope.launch {
@@ -441,7 +475,16 @@ class PocketViewModel(
                 throw e
             } catch (e: Throwable) {
                 if (activeSessionId == sessionId) {
-                    _state.update { it.copy(chat = it.chat.copy(error = describe(e))) }
+                    _state.update {
+                        it.copy(
+                            chat = it.chat.copy(
+                                // Stop the spinner on failure too: a spinner that
+                                // never resolves is indistinguishable from a hang.
+                                loadingHistory = false,
+                                error = describe(e),
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -470,6 +513,9 @@ class PocketViewModel(
                         chat = st.chat.copy(
                             sessionId = frame.sessionId ?: st.chat.sessionId,
                             items = items,
+                            // The snapshot is the backlog; once it lands the
+                            // transcript is authoritative and the spinner must go.
+                            loadingHistory = false,
                             status = if (items.isEmpty()) ChatState.Status.Idle else st.chat.status,
                         )
                     )
@@ -618,25 +664,45 @@ class PocketViewModel(
                 if (data.obj("source")?.string("kind") != "user") return
                 val text = Json.contentText(data["content"])
                 if (text.isBlank()) return
+                // Reconcile the echo with the optimistic bubble painted in `send`.
+                //
+                // Order matters: peek the head of the FIFO *before* touching state,
+                // so this stays a single atomic decision. On an exact text match we
+                // consume it and retag the bubble in place; otherwise this is a
+                // message we never sent from this screen (a turn authored on the
+                // desktop, or a replay after a reconnect) and it is appended.
+                //
+                // Matching on the head only — not on "any pending text" — is what
+                // makes sending "你好" twice behave correctly: the two prompts
+                // produce two echoes and two queue entries, consumed in order.
+                val echoedLocally = pendingUserTexts.firstOrNull() == text
+                if (echoedLocally) pendingUserTexts.removeFirst()
                 _state.update { st ->
-                    // Dedup against both the event key and the optimistic local
-                    // bubble keyed by `local-${text.hashCode()}`. This is the fix
-                    // for the double-message bug: the local bubble was sent
-                    // immediately for responsiveness, and the desktop echoes the
-                    // same text back as a authoritative record. Without matching
-                    // on text content, the echo appeared as a second bubble.
-                    val localKey = "local-${text.hashCode()}"
-                    if (st.chat.items.any { it.key == "u-${event.seq}" || it.key == localKey }) {
-                        // Replace the local optimistic key with the stable event
-                        // key so a future re-baseline snapshot can still dedup.
-                        st.copy(
-                            chat = st.chat.copy(
-                                items = st.chat.items.map { item ->
-                                    if (item.key == localKey) item.copy(key = "u-${event.seq}")
-                                    else item
-                                }
-                            )
-                        )
+                    if (st.chat.items.any { it.key == "u-${event.seq}" }) {
+                        // A re-delivered event (reconnect replay): already present.
+                        st
+                    } else if (echoedLocally) {
+                        // Retag the optimistic bubble with the stable event key so a
+                        // future snapshot re-baseline can dedup it, and so ordering
+                        // matches the desktop's own seq order.
+                        var retagged = false
+                        val items = st.chat.items.map { item ->
+                            if (!retagged && item.role == ChatItem.Role.User &&
+                                item.key.startsWith("local-") && item.text == text
+                            ) {
+                                retagged = true
+                                item.copy(key = "u-${event.seq}")
+                            } else {
+                                item
+                            }
+                        }
+                        if (retagged) {
+                            st.copy(chat = st.chat.copy(items = items))
+                        } else {
+                            // The optimistic bubble is already gone (snapshot took
+                            // over). Trust the snapshot; do not append a second copy.
+                            st
+                        }
                     } else {
                         st.copy(
                             chat = st.chat.copy(
@@ -761,13 +827,25 @@ class PocketViewModel(
         // Show the bubble immediately, but keep the status honest: the send is
         // only acknowledged once the gateway answers `{accepted:true}`.
         //
-        // The key is `u-${body.hashCode()}` so the follow stream's later
-        // `user/message` event can find and drop this optimistic bubble instead
-        // of rendering it twice. The alternative — keying on a random UUID — is
-        // what caused the double-message bug: the desktop echoes the same text
-        // back as a `user/message` event with a different key, and the `any {}`
-        // dedup in `handleEvent` never matched.
-        val localKey = "local-${body.hashCode()}"
+        // ### Why the de-duplication is a queue of texts, not a key
+        //
+        // The desktop echoes every user turn back through the follow stream as a
+        // `user/message` event. That echo is authoritative — but this bubble was
+        // painted a round trip earlier for responsiveness, so something has to
+        // reconcile the two or the message renders twice.
+        //
+        // An earlier attempt keyed the local bubble on `text.hashCode()` and
+        // matched on that. It is the wrong tool: two different texts can share a
+        // hash (collision), and sending the same text twice — "你好", then "你好"
+        // again — collides with itself, so the second bubble either vanished or
+        // the first one never got reconciled.
+        //
+        // A FIFO of the exact strings we have optimistically painted matches the
+        // way the desktop actually behaves: echoes come back in the order the
+        // prompts were accepted. `user/message` pops the head when the text
+        // matches, which is a real identity check rather than a guess.
+        pendingUserTexts.addLast(body)
+        val localKey = "local-${nextLocalSeq++}"
         _state.update { st ->
             st.copy(
                 chat = st.chat.copy(
@@ -1103,8 +1181,14 @@ class PocketViewModel(
      * Leave the chat screen without forgetting the session.
      *
      * The follow stream is torn down so a backgrounded phone is not holding a
-     * socket per opened session, but the last session id stays in settings so
-     * reopening the app returns to it.
+     * socket per opened session, but the last session id stays in settings so a
+     * *deliberate* reopen can land near where the user was.
+     *
+     * Both navigation fields are cleared **synchronously and together**. Doing it
+     * in two steps would leave one frame where `openSessionId` is null while
+     * `chat.sessionId` still points at the old session, and any UI that falls
+     * back from the first to the second would briefly render the chat again —
+     * the visible symptom being a screen that will not let you leave.
      */
     fun closeSession() {
         chatJob?.cancel()
@@ -1112,7 +1196,8 @@ class PocketViewModel(
         followHandle?.cancel()
         followHandle = null
         activeSessionId = null
-        _state.update { it.copy(chat = ChatState()) }
+        pendingUserTexts.clear()
+        _state.update { it.copy(openSessionId = null, chat = ChatState()) }
     }
 
     // ----------------------------------------------------------------- misc

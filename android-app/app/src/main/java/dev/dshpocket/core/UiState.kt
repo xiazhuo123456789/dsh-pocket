@@ -113,6 +113,17 @@ data class ChatState(
     val approval: ApprovalRequest? = null,
     val stopState: StopState = StopState.None,
     val error: String? = null,
+    /**
+     * True from the moment [openSession] starts following until the first
+     * `snapshot` frame lands.
+     *
+     * Exists so "the desktop has not answered yet" is visually distinct from
+     * "this conversation is genuinely empty". Without it, opening a session on a
+     * slow or broken tunnel shows the same "把任务发给电脑" placeholder as a brand
+     * new file, and the user concludes their history is gone — which is exactly
+     * the report that made this field necessary.
+     */
+    val loadingHistory: Boolean = false,
 ) {
     /**
      * [Done], [Failed] and [Cancelled] all mean "no turn is in flight" but differ in
@@ -178,4 +189,21 @@ data class UiState(
     val approvals: ApprovalState = ApprovalState(),
     val paired: PairedDesktop? = null,
     val settings: AppSettings = AppSettings(),
+    /**
+     * Which session the user has navigated into, or `null` when they are on the
+     * workspace list.
+     *
+     * This is the **single source of truth for navigation**. It lives here rather
+     * than in the composable because a `remember` inside a conditional branch is
+     * discarded the moment that branch leaves the composition — which is exactly
+     * how the old "it keeps jumping back into a session / cannot go back" bug was
+     * born: the guard that was supposed to run only once got reset on every
+     * return to the list.
+     *
+     * Kept deliberately separate from [ChatState.sessionId]: that one is "whose
+     * history is loaded", this one is "what the user is looking at". They move
+     * together in [dev.dshpocket.core.PocketViewModel.openSession] but are read
+     * for different reasons.
+     */
+    val openSessionId: String? = null,
 )

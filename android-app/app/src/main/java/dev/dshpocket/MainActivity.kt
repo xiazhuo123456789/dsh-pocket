@@ -183,17 +183,37 @@ class MainActivity : ComponentActivity() {
  * Route selection.
  *
  * Landing rules, in order: no credential -> pairing; settings requested ->
- * settings; a session chosen -> chat; otherwise the session list. The order
+ * settings; a session opened -> chat; otherwise the workspace list. The order
  * matters — pairing must win over everything, because without a credential none
  * of the other screens can do anything.
  *
- * `openSessionId` and `showSettings` are `rememberSaveable` so a rotation does not
- * bounce the user back to the list.
+ * ### Why the open session is read from [UiState] and not held here
+ *
+ * It used to be `rememberSaveable` local state in this composable, with a
+ * separate `LaunchedEffect` that tried to "resume the last session once" on
+ * startup. That was the source of two of the worst bugs in the app:
+ *
+ * 1. The one-shot guard was a `remember` **inside the `else` branch**, so every
+ *    return to the list destroyed and recreated it, the guard read `false` again,
+ *    and the resume fired a second time — the user was shoved back into a session
+ *    they had just left, forever. On screen: a list that flashes and a back
+ *    gesture that appears to do nothing.
+ * 2. Having two candidate sources (`here` and `state.chat.sessionId`) meant one
+ *    of them could be non-null while the other was not, so the chat could render
+ *    over an empty transcript, or the list could render with a session still
+ *    attached.
+ *
+ * Navigation now reads exactly one field, [UiState.openSessionId], which
+ * `openSession`/`closeSession` set. There is no resume-on-start: the user picks a
+ * conversation, and a cold start lands on the list — which is predictable, and
+ * is what makes the back gesture behave the same way every time.
+ *
+ * `showSettings` stays local because it is pure view state with no cross-screen
+ * consequence, and `rememberSaveable` keeps it across rotation.
  */
 @Composable
 private fun PocketRoot(state: UiState) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
-    var openSessionId by rememberSaveable { mutableStateOf<String?>(null) }
 
     if (state.paired == null) {
         PairScreen(
@@ -219,32 +239,25 @@ private fun PocketRoot(state: UiState) {
             onReconnect = app().viewModel::reconnect,
             onUnpair = {
                 showSettings = false
-                openSessionId = null
                 app().viewModel.unpair()
             },
         )
         return
     }
 
-    // `state.chat.sessionId` is the authority on whether a chat is actually
-    // loaded. Comparing the two prevents a stale saved id from rendering a chat
-    // screen over an empty ChatState after a failed open.
-    val currentSession = openSessionId ?: state.chat.sessionId
-    if (currentSession != null && state.chat.sessionId == currentSession) {
+    // One field decides. No fallback to `state.chat.sessionId`: that produced a
+    // frame where navigation said "list" but data said "session", and whichever
+    // won visually produced either a stuck chat or a chat over an empty list.
+    val openSessionId = state.openSessionId
+    if (openSessionId != null) {
         // Same fix for the chat screen: the system back key must return to the
         // session list, not exit the app. The app-bar back arrow already does
         // this, but the gesture/physical back key bypassed it.
-        BackHandler {
-            openSessionId = null
-            app().viewModel.closeSession()
-        }
+        BackHandler { app().viewModel.closeSession() }
         ChatScreen(
             state = state.chat,
             connection = state.connection,
-            onBack = {
-                openSessionId = null
-                app().viewModel.closeSession()
-            },
+            onBack = { app().viewModel.closeSession() },
             onSend = { app().viewModel.send(it) },
             onStop = { app().viewModel.stop() },
             onApprove = { approval, allow -> app().viewModel.answerApproval(approval, allow) },
@@ -255,32 +268,11 @@ private fun PocketRoot(state: UiState) {
             sessions = state.sessions,
             loading = state.sessionsLoading,
             connection = state.connection,
-            onOpen = { id ->
-                openSessionId = id
-                app().viewModel.openSession(id)
-            },
-            onNew = { app().viewModel.newSession() },
+            onOpen = { id -> app().viewModel.openSession(id) },
+            onNew = { cwd -> app().viewModel.newSession(cwd) },
             onRefresh = app().viewModel::refreshSessions,
             onSettings = { showSettings = true },
         )
-        // Resume the last session only on a true cold start — the very first
-        // composition where neither openSessionId nor chat.sessionId has been
-        // set yet. `rememberSaveable` holds openSessionId across rotation, and
-        // the LaunchedEffect key `Unit` would re-fire on every return from
-        // settings or chat, re-opening a session the user just left. That was
-        // the "it auto-jumps to a session" bug.
-        //
-        // The guard `hasResumed` is a plain `remember` (not saveable): it only
-        // needs to survive recomposition, not a process death. On a real cold
-        // start it is false; after the first resume it is true for the life of
-        // the process.
-        var hasResumed by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            if (!hasResumed && openSessionId == null && state.chat.sessionId == null) {
-                hasResumed = true
-                app().viewModel.resumeLastSession(state.settings.lastSessionId)
-            }
-        }
     }
 }
 
