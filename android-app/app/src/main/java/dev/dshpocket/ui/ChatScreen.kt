@@ -50,6 +50,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,11 +121,30 @@ fun ChatScreen(
     var confirmStop by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    // Follow the tail as content arrives. `+1` accounts for the streaming bubble,
-    // which is not yet an item in `state.items`.
+    // 跟随末尾，但只在用户本来就在底部时才跟。
+    //
+    // 两个细节都是修抖动的：
+    //
+    // 1. **判断用户是否在底部。** 早先无条件滚动，用户想往上翻看前文时每来一个
+    //    增量就被拽回底部，屏幕上就是"内容自己在动"。
+    // 2. **流式增量用 `scrollToItem`（瞬时）而不是 `animateScrollToItem`。**
+    //    模型每秒能吐十几个增量，每个都启动一次动画等于让列表一直在动画中，
+    //    看起来就是持续抖动。只有"新增一整条消息"才值得一次动画。
+    val nearBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= info.totalItemsCount - 2
+        }
+    }
     LaunchedEffect(state.items.size, state.streamingText.length) {
         val total = state.items.size + if (state.streamingText.isNotEmpty()) 1 else 0
-        if (total > 0) listState.animateScrollToItem(total - 1)
+        if (total <= 0 || !nearBottom) return@LaunchedEffect
+        if (state.streamingText.isNotEmpty()) {
+            listState.scrollToItem(total - 1)
+        } else {
+            listState.animateScrollToItem(total - 1)
+        }
     }
 
     // A confirmation step, not a direct action: cancelling is irreversible and
