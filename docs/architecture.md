@@ -98,6 +98,24 @@ None ──stop()──▶ Requested ──turn/end──▶ Confirmed
 - `MainActivity.onStart` 会在已配对但未连接时重连
 - 前台服务在「有任务在跑」时启动，任务全部结束后停止
 
+### 退避重连与「状态未知」
+
+`GatewayClient` 检测到 mux socket 断开（`onFailure` / `onClosed`）时，会把同一个
+错误广播给所有已开流，并回调 `onCarrierLost`。`PocketViewModel` 收到后做三件事：
+
+1. 把连接相位设为 `Error`，让横幅显示真实原因；
+2. 把 `chat.status` 中仍在进行的那几态（`Running` / `Queued` / `AwaitingApproval`）
+   降级为 `Unknown`，并清掉已失效的审批卡片和流式气泡；
+3. 按 1s → 2s → 4s → 8s → 16s → 30s 退避重连（封顶 30 秒），成功后清零计数、
+   重新拉列表并重新订阅当前打开的会话。
+
+**为什么必须引入 `Unknown`**：运行状态唯一的来源是 `api-session/status`，通道断了就
+再也收不到，最后一次读数会永久冻结在快照里。若继续显示「运行中」，屏幕上就同时存在
+「● 运行中」和「连接失败」两句互相矛盾的自述——这比承认不知道更糟。
+
+`disconnectInternal()` 会取消重连任务并清零计数，所以用户主动断开或取消配对之后，
+不会出现「我明明断了它自己又连上」。
+
 连接状态与凭据分离：凭据在 `CredentialStore`，连接在 `PocketViewModel`。所以杀进程
 重开后状态可以恢复（重新连接 + 重新 follow 会话），凭据不会丢。
 

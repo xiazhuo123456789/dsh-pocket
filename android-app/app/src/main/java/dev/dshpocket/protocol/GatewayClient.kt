@@ -270,6 +270,26 @@ class GatewayClient(
     @Volatile private var muxReady = false
 
     /**
+     * 承载一旦断开就通知外面 —— 让上层能真正重建连接。
+     *
+     * ### 为什么必须回调，而不是只把 `muxReady` 置 false
+     *
+     * `onFailure`/`onClosed` 只做三件事：置 `muxReady = false`、把错误塞进所有
+     * 已开流的队列、清空流表。**没有任何人负责重连。** 于是手机切到后台、隧道
+     * 抖动、或桌面端重启之后，界面会永久停在一行
+     * `gateway/mux-failed: Remote mux failed (HTTP 0)` 上，只有手动去设置页点
+     * 「重新连接」才能恢复 —— 而用户根本不知道该去点那个按钮。
+     *
+     * 更糟的是状态条还会继续显示「运行中」：`api-session/status` 是唯一的状态
+     * 来源，链路断了就再也收不到它，最后一次「在跑」的读数被冻结在界面上。这
+     * 等于用旧数据假装知道当前状态，正是本项目最不能容忍的那种谎。
+     *
+     * 所以这里把"承载死了"这件事上报给 [PocketViewModel]，由它决定退避重连，
+     * 并把状态降级为「不知道」。
+     */
+    var onCarrierLost: ((RemoteError) -> Unit)? = null
+
+    /**
      * Identity the Host assigned to this `$events` subscriber. It is required to
      * answer waterfall events (`$events/result` correlates on `clientId`), and it
      * is only known after the `{type:"ready"}` opening frame.
@@ -453,21 +473,37 @@ class GatewayClient(
             socket = null
             val failure = RemoteError(
                 code = "gateway/mux-failed",
-                message = t.message ?: "Remote mux failed (HTTP ${response?.code ?: 0})",
+                // `HTTP 0` 这个数字很误导：它不是"服务器返回了 0"，而是**根本没
+                // 拿到 HTTP 响应**（DNS/TLS/连接被掐断/超时）。把这句话讲清楚，
+                // 用户才知道该查什么，而不是去怀疑桌面端返回了错误码。
+                message = t.message ?: "与电脑的实时通道断开（没有收到 HTTP 响应）",
             )
-            for (h in streams.values + pendingOpens.values) {
-                h.inbox.trySend(Frame.Error(failure))
-                h.inbox.close()
-            }
-            streams.clear()
-            pendingOpens.clear()
+            failAllStreams(failure)
+            // 上报给上层做退避重连。放在最后：先把本地状态收拾干净（流已失败、
+            // 表已清空），这样重连时不会看到半死的旧句柄。
+            onCarrierLost?.invoke(failure)
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             muxReady = false
             socket = null
+            val failure = RemoteError(
+                "gateway/mux-closed",
+                "与电脑的实时通道已关闭（$code${if (reason.isNotBlank()) " $reason" else ""}）",
+            )
+            failAllStreams(failure)
+            onCarrierLost?.invoke(failure)
+        }
+
+        /**
+         * 把同一个失败广播给所有已开流并关闭它们。
+         *
+         * 承载死了以后没有任何流还能推进。留着不关会让 follow 流看起来"空闲"而
+         * 不是"坏了"，用户就分不清"电脑在思考"和"我们掉线了"。
+         */
+        private fun failAllStreams(failure: RemoteError) {
             for (h in streams.values + pendingOpens.values) {
-                h.inbox.trySend(Frame.Error(RemoteError("gateway/mux-closed", "Remote mux closed: $reason")))
+                h.inbox.trySend(Frame.Error(failure))
                 h.inbox.close()
             }
             streams.clear()

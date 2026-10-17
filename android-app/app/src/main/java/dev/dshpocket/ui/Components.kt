@@ -50,6 +50,9 @@ fun StatusChip(status: ChatState.Status, modifier: Modifier = Modifier) {
         ChatState.Status.Done -> "已完成" to PocketColors.ok
         ChatState.Status.Failed -> "失败" to PocketColors.bad
         ChatState.Status.Cancelled -> "已取消" to PocketColors.muted
+        // 掉线后不再假装知道。见 [ChatState.Status.Unknown] 的 KDoc：显示"未知"
+        // 而不是冻结在最后的「运行中」，是因为后者会跟下面的红色断线横幅自相矛盾。
+        ChatState.Status.Unknown -> "状态未知" to PocketColors.muted
     }
     // A 16% tint of the semantic color: readable in both themes without the pill
     // competing with the chat content behind it.

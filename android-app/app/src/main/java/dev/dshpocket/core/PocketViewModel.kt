@@ -133,6 +133,26 @@ class PocketViewModel(
     /** Monotonic counter for local bubble keys — never reused, never a hash. */
     private var nextLocalSeq: Long = 0L
 
+    /**
+     * 退避重连的调度任务与轮次。
+     *
+     * ### 为什么需要它（上一版最严重的缺陷）
+     *
+     * 之前承载一断就再没人管：`GatewayClient` 把 `muxReady` 置 false、把错误塞进
+     * 各流，然后就结束了。手机上表现为一行永远不会消失的
+     * `gateway/mux-failed: Remote mux failed (HTTP 0)`，只有用户自己摸到设置页点
+     * 「重新连接」才能恢复 —— 而界面上一片正常，没人会想到去点那里。
+     *
+     * 隧道抖动、切后台、桌面端重启都会触发。所以这里做**自动**恢复：断开后按
+     * 1s/2s/4s/8s/16s/30s 退避重试，封顶 30s，直到成功或被主动断开
+     * （[disconnectInternal] 会取消这个任务，避免用户登出后还在偷偷重连）。
+     *
+     * @param reconnectJob 当前等待中的重连；`null` 表示没有在重试。
+     * @param reconnectAttempt 已连续失败的次数，用来算下一次的等待时长；成功后归零。
+     */
+    private var reconnectJob: Job? = null
+    private var reconnectAttempt: Int = 0
+
     init {
         // Mirror persisted settings into the snapshot so the UI has exactly one
         // object to read rather than combining flows itself.
@@ -188,6 +208,9 @@ class PocketViewModel(
         val gw = GatewayClient(base, paired.deviceId, scope)
         client = gw
         api = SessionApi(gw)
+        // 承载断开时由 GatewayClient 主动上报，这里负责退避重连。注册在建立连接
+        // 之前，避免"socket 刚开就断"的那一瞬间漏掉通知。
+        gw.onCarrierLost = { failure -> onCarrierLost(failure) }
         _state.update {
             it.copy(
                 paired = paired,
@@ -202,6 +225,9 @@ class PocketViewModel(
             try {
                 // The mux socket is opened here, once, and reused by every stream.
                 gw.ensureMux()
+                // 成功了才把重试计数清零：半路失败不能重置退避，否则会变成
+                // 每 1 秒重连一次的忙等。
+                reconnectAttempt = 0
                 _state.update {
                     it.copy(
                         connection = it.connection.copy(
@@ -215,14 +241,86 @@ class PocketViewModel(
                 notifier.cancelConnection()
                 startEvents(gw)
                 refreshSessions()
+                // 重连成功后把用户正看着的那个会话重新订阅一遍。
+                //
+                // 不重订阅的话界面会停在旧内容上：转写不会再更新（follow 流已经
+                // 跟着上一代 socket 一起死了），状态也停在 Unknown。重新 openSession
+                // 会重置成 loadingHistory 再收一份 snapshot —— 视觉上闪一下白，但
+                // 换来的是真的接着电脑上的记录，而不是一段死掉的历史。
+                //
+                // 放在 refreshSessions 之后：这样列表已经刷新过，即使重订阅失败，
+                // 用户退回去看到的也是最新的会话列表。
+                _state.value.openSessionId?.let { openSession(it) }
             } catch (e: CancellationException) {
                 // Never swallow cancellation: it means the caller replaced us.
                 throw e
             } catch (e: Throwable) {
                 onConnectionFailure(e)
+                scheduleReconnect()
             }
         }
     }
+
+    /**
+     * 承载（mux socket）断开时的处理：降级状态、通知用户、排一次重连。
+     *
+     * ### 为什么这里必须把状态改成"未知"而不是留着
+     *
+     * `api-session/status` 是运行状态的唯一来源。链路一断就再也收不到它，最后
+     * 一次读数会被永久冻结在快照里 —— 界面上「● 运行中」和下面「连接失败」同时
+     * 显示，两句都是我们自己说的，互相矛盾。改成 [ChatState.Status.Unknown]
+     * 才是诚实的：没人告诉我们当前状态。
+     *
+     * 会话列表和转写**不清空**：掉线不等于会话被删。显示旧数据 + 明确横幅，
+     * 好过清空成空白（那是更严重的误判）。
+     */
+    private fun onCarrierLost(failure: dev.dshpocket.protocol.RemoteError) {
+        _state.update {
+            it.copy(
+                connection = it.connection.copy(phase = Phase.Error, error = failure.message),
+                // 只把"正在跑/排队中"降级为未知；已经结束的（Done/Failed/Cancelled）
+                // 是历史事实，不会因为掉线就变成假的。
+                chat = it.chat.copy(
+                    status = if (it.chat.status == ChatState.Status.Running ||
+                        it.chat.status == ChatState.Status.Queued ||
+                        it.chat.status == ChatState.Status.AwaitingApproval
+                    ) ChatState.Status.Unknown else it.chat.status,
+                    // 等待审批的卡片也必须收掉：那条审批已经答不了了（clientId 随
+                    // socket 失效），留着按钮只会让用户白点。
+                    approval = null,
+                    // 转写里那个"正在生成"的灰字气泡同理，它再也不会变长了。
+                    streamingText = "",
+                ),
+            )
+        }
+        scope.launch {
+            if (_state.value.settings.notifyOnDisconnect) notifier.connectionLost(failure.message)
+        }
+        scheduleReconnect()
+    }
+
+    /**
+     * 排一次退避重连。
+     *
+     * 1s → 2s → 4s → 8s → 16s → 30s 封顶。用指数退避而不是固定 1 秒，是因为
+     * 桌面端可能整晚关机，固定间隔会让手机整夜每秒钟醒一次 —— 费电，而且在
+     * 系统眼里这就是一个后台滥用网络的 app。
+     *
+     * 幂等：已有等待中的重连就直接返回，不会叠出两条重连链。
+     */
+    private fun scheduleReconnect() {
+        if (reconnectJob?.isActive == true) return
+        val paired = credentials.load() ?: return
+        val delayMs = (1_000L shl reconnectAttempt.coerceAtMost(5)).coerceAtMost(30_000L)
+        reconnectAttempt++
+        reconnectJob = scope.launch {
+            delay(delayMs)
+            // `connect` 会先 `disconnectInternal`，把这一代 socket 与 job 全部
+            // 收干净，再开新的一代，因此不会出现两代共用 `$events` 的情况。
+            connect(paired)
+        }
+    }
+
 
     /**
      * Record a connection failure in the snapshot and (optionally) notify.
@@ -250,6 +348,11 @@ class PocketViewModel(
      * closed" and "we cleared the session id" and resurrect stale state.
      */
     private fun disconnectInternal() {
+        // 先取消重连链：否则用户主动「断开 / 取消配对」之后，这条链还会在几秒后
+        // 把连接重新建起来，表现为"我明明断了它自己又连上了"。
+        reconnectJob?.cancel()
+        reconnectJob = null
+        reconnectAttempt = 0
         chatJob?.cancel()
         eventsJob?.cancel()
         followHandle?.cancel()

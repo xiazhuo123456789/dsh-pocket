@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import dev.dshpocket.core.ChatItem
 import dev.dshpocket.core.ChatState
 import dev.dshpocket.core.ConnectionState
+import dev.dshpocket.core.Phase
 import dev.dshpocket.protocol.ApprovalRequest
 
 /**
@@ -184,11 +185,21 @@ fun ChatScreen(
             // one reports a specific failed action ("发送失败：…") rather than the
             // state of the link, and the user can acknowledge it.
             //
-            // 去重：当本次失败同时被写进了连接状态（例如 follow 流建立失败会同时
-            // 设置 connection.error 和 chat.error），两条一模一样的红条会一上一下
-            // 叠在屏幕顶部 —— 用户体感就是"闪一下"和"界面很乱"。连接条已经把事情
-            // 说清楚了，这里就不再重复；只有当这条错误是连接条没说过的内容时才显示。
-            val chatError = state.error?.takeIf { it != connection.error }
+            // 去重：连接类错误只由上面那条横幅负责，这里绝不再重复一遍。
+            //
+            // 上一版按**字符串全等**去重（`state.error != connection.error`），实测
+            // 依然叠出两条同样的红条 —— 因为两处错误是不同时刻、由不同 catch 块写入
+            // 的，只要有一边多了个前缀或尾注就不再相等，而去重逻辑对此毫无察觉。
+            // 字符串相等本来就是错误的判据：真正要判断的是"这条错误说的是不是同一
+            // 件事"，而这件事是**连接**还是**某次动作**。
+            //
+            // 判据改为来源：连接已处于 Error 时，凡是网关/传输类的错误（code 以
+            // `gateway/` 开头，例如 `gateway/mux-failed`、`gateway/http-500`）都归
+            // 横幅讲；只有业务性失败（比如"提交决定失败"、会话不存在）才在这里显示。
+            val linkDown = connection.phase == Phase.Error
+            val chatError = state.error?.takeIf { err ->
+                !(linkDown && err.startsWith("gateway/"))
+            }
             chatError?.let { err ->
                 Surface(color = MaterialTheme.colorScheme.errorContainer) {
                     Row(

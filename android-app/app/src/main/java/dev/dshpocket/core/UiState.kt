@@ -135,8 +135,16 @@ data class ChatState(
      * not one that broke, and the honest thing to show is a finished turn rather
      * than an error banner the user cannot act on. See the `newStatus` mapping in
      * `PocketViewModel.handleEvent`.
+     *
+     * [Unknown] exists because a frozen reading is a lie. Status comes from exactly
+     * one source — the `api-session/status` frames on the `$events` socket — so once
+     * that socket is gone we receive nothing more and the last value stays in the
+     * snapshot forever. Rendering it unchanged is what produced the screenshot where
+     * the screen said 「运行中」 while a red banner underneath said the link had
+     * failed: two contradictory claims, both from us. When the carrier is down the
+     * chip says [Unknown] instead, which is the truth ("nobody has told us").
      */
-    enum class Status { Idle, Queued, Running, AwaitingApproval, Done, Failed, Cancelled }
+    enum class Status { Idle, Queued, Running, AwaitingApproval, Done, Failed, Cancelled, Unknown }
 
     /**
      * The stop lifecycle. Four values because a pressed button is not a stopped
