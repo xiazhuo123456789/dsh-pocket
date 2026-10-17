@@ -183,7 +183,13 @@ fun ChatScreen(
             // A dismissable error strip, distinct from the connection banner. This
             // one reports a specific failed action ("发送失败：…") rather than the
             // state of the link, and the user can acknowledge it.
-            state.error?.let { err ->
+            //
+            // 去重：当本次失败同时被写进了连接状态（例如 follow 流建立失败会同时
+            // 设置 connection.error 和 chat.error），两条一模一样的红条会一上一下
+            // 叠在屏幕顶部 —— 用户体感就是"闪一下"和"界面很乱"。连接条已经把事情
+            // 说清楚了，这里就不再重复；只有当这条错误是连接条没说过的内容时才显示。
+            val chatError = state.error?.takeIf { it != connection.error }
+            chatError?.let { err ->
                 Surface(color = MaterialTheme.colorScheme.errorContainer) {
                     Row(
                         Modifier
@@ -366,24 +372,19 @@ private fun StopBanner(stopState: ChatState.StopState) {
  *
  * `widthIn(max = 320.dp)` keeps a long line from spanning the full width on a
  * tablet, which would make the transcript hard to follow.
+ *
+ * 底色与文字色成对取自 [roleColors]，两者必须一起取。早先这里分别写死
+ * `#232324` / `#E0E0E0`，在浅色主题下就变成"近黑气泡 + 浅灰底"，正是用户
+ * 反馈的"回答背景颜色太丑"。
  */
 @Composable
 private fun Bubble(item: ChatItem) {
     val isUser = item.role == ChatItem.Role.User
     val isTool = item.role == ChatItem.Role.Tool
     val align = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
-    // Use the fixed role-based palette from Components.roleColor — these are
-    // deliberately NOT Material scheme tokens, because the chat canvas is a
-    // fixed dark surface in both themes (see roleColor KDoc).
-    val bg = when {
-        item.isError -> MaterialTheme.colorScheme.errorContainer
-        else -> roleColor(item.role)
-    }
-    val fg = when {
-        item.isError -> MaterialTheme.colorScheme.onErrorContainer
-        isUser -> Color(0xFFE8EDF5) // near-white text on blue-ish dark surface
-        else -> Color(0xFFE0E0E0)   // near-white text on neutral dark surface
-    }
+    val (roleBg, roleFg) = roleColors(item.role)
+    val bg = if (item.isError) MaterialTheme.colorScheme.errorContainer else roleBg
+    val fg = if (item.isError) MaterialTheme.colorScheme.onErrorContainer else roleFg
     Box(Modifier.fillMaxWidth(), contentAlignment = align) {
         Surface(
             modifier = Modifier.widthIn(max = 320.dp),
@@ -400,7 +401,7 @@ private fun Bubble(item: ChatItem) {
                     Text(
                         text = "工具 · ${item.toolName ?: "调用"}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF9090A0),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(3.dp))
                 }
@@ -459,7 +460,7 @@ private fun ApprovalCard(
                     color = PocketColors.warn,
                 ) {
                     TextButton(onClick = onAllow) {
-                        Text("允许一次", color = androidx.compose.ui.graphics.Color(0xFF2A1C00))
+                        Text("允许一次", color = Color(0xFF2A1C00))
                     }
                 }
             }

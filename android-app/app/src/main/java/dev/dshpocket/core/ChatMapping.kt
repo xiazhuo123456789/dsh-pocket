@@ -35,6 +35,15 @@ import dev.dshpocket.protocol.string
  * filter the transcript would show the phone owner saying things they never said,
  * which in a control app is a serious misrepresentation.
  *
+ * ### Why the directive strip must match the live path exactly
+ *
+ * `send` appends a reply-language directive as its own content part, so journaled
+ * user turns contain two text parts. Both this replay path and the live handler
+ * in `PocketViewModel` strip it with the same `PromptDirectives` helper. If they
+ * disagreed, the same turn would render differently depending on whether the user
+ * opened the session live or after a reload — the exact class of bug the "one
+ * mapping function" rule exists to prevent. See [PromptDirectives].
+ *
  * ### Why the keys are seq-based
  *
  * `seq` is the desktop's monotonic event sequence. Using it as the Compose key
@@ -49,7 +58,7 @@ import dev.dshpocket.protocol.string
 internal fun toChatItem(event: FollowEvent): ChatItem? = when (event.type) {
     "user/message" -> {
         val source = event.data.asObjOrNull()?.obj("source")?.string("kind")
-        val text = Json.contentText(event.data.asObjOrNull()?.get("content"))
+        val text = PromptDirectives.contentTextWithoutDirectives(event.data.asObjOrNull()?.get("content"))
         if (source == "user" && text.isNotBlank()) {
             ChatItem(key = "u-${event.seq}", role = ChatItem.Role.User, text = text)
         } else null

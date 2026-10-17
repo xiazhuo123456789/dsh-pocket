@@ -662,7 +662,13 @@ class PocketViewModel(
                 val data = event.data.asObjOrNull() ?: return
                 // Only echo genuine user turns, not injected runtime context.
                 if (data.obj("source")?.string("kind") != "user") return
-                val text = Json.contentText(data["content"])
+                // Strip our own reply-language directive back out: the content
+                // array carries both the user's sentence and the directive we
+                // appended, and only the former is something the user typed.
+                // Without this, the transcript shows a sentence nobody wrote — and
+                // the de-duplication below would never match, reproducing the
+                // "one message sent, two shown" bug.
+                val text = PromptDirectives.contentTextWithoutDirectives(data["content"])
                 if (text.isBlank()) return
                 // Reconcile the echo with the optimistic bubble painted in `send`.
                 //
@@ -824,6 +830,22 @@ class PocketViewModel(
         val sessionId = _state.value.chat.sessionId ?: return
         val body = text.trim()
         if (body.isEmpty()) return
+        // The reply-language directive is appended as a **separate content part**,
+        // never spliced into `body`. Two consequences that matter here:
+        //
+        //   * `body` is what the optimistic bubble below shows, so the user sees
+        //     exactly what they typed, not what we added;
+        //   * the echo matching further down compares against `body` only, so the
+        //     directive can never break de-duplication.
+        //
+        // See `PromptDirectives` for why the directive exists at all.
+        val directives: List<String> = if (_state.value.settings.simplifiedChinese) {
+            listOf(PromptDirectives.SIMPLIFIED_CHINESE)
+        } else {
+            // Explicit element type: without it Kotlin cannot infer `T` from the
+            // bare `emptyList()` in the else branch of an if-expression.
+            emptyList()
+        }
         // Show the bubble immediately, but keep the status honest: the send is
         // only acknowledged once the gateway answers `{accepted:true}`.
         //
@@ -861,7 +883,7 @@ class PocketViewModel(
         }
         scope.launch {
             try {
-                val accepted = api.prompt(sessionId, body, mode)
+                val accepted = api.prompt(sessionId, body, mode, extraTextParts = directives)
                 if (!accepted) {
                     _state.update { st ->
                         st.copy(
@@ -1206,6 +1228,15 @@ class PocketViewModel(
     fun setNotifyOnApproval(v: Boolean) = scope.launch { settings.setNotifyOnApproval(v) }
     fun setNotifyOnDisconnect(v: Boolean) = scope.launch { settings.setNotifyOnDisconnect(v) }
     fun setKeepScreenAwake(v: Boolean) = scope.launch { settings.setKeepScreenAwake(v) }
+
+    /**
+     * Toggle the "reply in Simplified Chinese" directive.
+     *
+     * The desktop model chooses its own output language, and the Remote API has
+     * no setting for it — so the only honest lever is to attach a directive to
+     * each prompt. Off means byte-exact passthrough with nothing added.
+     */
+    fun setSimplifiedChinese(v: Boolean) = scope.launch { settings.setSimplifiedChinese(v) }
 
     /**
      * Collapse a throwable into something worth showing a user.

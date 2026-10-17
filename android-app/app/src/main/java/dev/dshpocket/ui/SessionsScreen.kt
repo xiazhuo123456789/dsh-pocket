@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -168,10 +169,22 @@ fun SessionsScreen(
     onSettings: () -> Unit,
 ) {
     val groups = remember(sessions) { groupByFolder(sessions) }
-    // Collapsed folders, by cwd. Stored as the *collapsed* set rather than an
-    // expanded map so the default (everything visible) needs no initialisation,
-    // and so a folder the user has never touched can never be accidentally shut.
-    var collapsed by rememberSaveable { mutableStateOf(emptySet<String>()) }
+    // 默认**全部折叠**，用户点开哪个才展开哪个。
+    //
+    // 与上一版相反：早先存的是"已折叠集合"，默认全展开，结果一进界面就是
+    // 58 个任务铺满七屏，想找某个文件夹反而要先滑过别人的内容。用户明确要求
+    // "刚到这个界面就是文件夹收缩的模式，想看每个文件夹就点开"，所以现在存
+    // "已展开集合"，默认空集 = 全部收起。
+    //
+    // 这里显式给了 [Saver]：`rememberSaveable` 的自动 saver 只认 Bundle 支持的
+    // 类型，`Set<String>` 不在其中 —— 平时看不出问题，直到用户旋转屏幕或系统
+    // 回收进程时崩溃。转成 `ArrayList<String>` 存、读回再 `toSet()`。
+    var expanded by rememberSaveable(
+        stateSaver = Saver<Set<String>, ArrayList<String>>(
+            save = { ArrayList(it) },
+            restore = { it.toSet() },
+        ),
+    ) { mutableStateOf(emptySet<String>()) }
     // Which folder the pending "new file" belongs to, or null when the chooser is
     // closed. `rememberSaveable` so a rotation mid-decision does not silently
     // create the file in the default folder instead.
@@ -255,23 +268,23 @@ fun SessionsScreen(
                 ) {
                     groups.forEach { group ->
                         val groupKey = group.cwd ?: ORPHAN_GROUP_KEY
-                        val isCollapsed = groupKey in collapsed
+                        val isExpanded = groupKey in expanded
 
                         item(key = "folder-$groupKey") {
                             FolderHeader(
                                 group = group,
-                                expanded = !isCollapsed,
+                                expanded = isExpanded,
                                 onToggle = {
-                                    collapsed = if (isCollapsed) {
-                                        collapsed - groupKey
+                                    expanded = if (isExpanded) {
+                                        expanded - groupKey
                                     } else {
-                                        collapsed + groupKey
+                                        expanded + groupKey
                                     }
                                 },
                             )
                         }
 
-                        if (!isCollapsed) {
+                        if (isExpanded) {
                             // Each task is its own lazy item, not a Column inside
                             // one item: a folder with forty sessions must not
                             // compose forty cards just because the folder is open.

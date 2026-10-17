@@ -168,6 +168,14 @@ class SessionApi(private val client: GatewayClient) {
      *   starting the same task twice after a network blip.
      * @param clientTimeZone optional IANA zone so the desktop can render times in
      *   the user's local zone rather than the host's.
+     * @param extraTextParts additional `{type:"text"}` parts appended after the
+     *   user's own text, in order.
+     *
+     *   `content` is an array, so a directive can ride along as its own part
+     *   instead of being spliced into the user's sentence. That keeps the user's
+     *   words byte-identical in the desktop's journal, makes the directive
+     *   individually switchable, and lets this app filter it back out of the local
+     *   transcript. See `dev.dshpocket.core.PromptDirectives`.
      */
     suspend fun prompt(
         sessionId: String,
@@ -175,6 +183,7 @@ class SessionApi(private val client: GatewayClient) {
         mode: PromptMode = PromptMode.Queue,
         requestId: String = UUID.randomUUID().toString(),
         clientTimeZone: String? = null,
+        extraTextParts: List<String> = emptyList(),
     ): Boolean {
         val req = buildJsonObject {
             put("requestId", requestId)
@@ -189,6 +198,17 @@ class SessionApi(private val client: GatewayClient) {
                             put("text", text)
                         }
                     )
+                    // Directives go *after* the user's text, so a model reading the
+                    // prompt sees what was asked first and the delivery constraint
+                    // second — the order that keeps the user's intent primary.
+                    extraTextParts.forEach { part ->
+                        add(
+                            buildJsonObject {
+                                put("type", "text")
+                                put("text", part)
+                            }
+                        )
+                    }
                 }
             )
             if (clientTimeZone != null) put("clientTimeZone", clientTimeZone)

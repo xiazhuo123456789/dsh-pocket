@@ -34,6 +34,14 @@ private val Context.settingsDataStore by preferencesDataStore(name = "dsh_pocket
  *   Off by default — a control app should not burn battery just by being open.
  * @param lastSessionId the session to reopen on next launch, so a restart does
  *   not dump the user back to the list.
+ * @param simplifiedChinese append a "reply in Simplified Chinese" directive to
+ *   every prompt.
+ *
+ *   On by default because the failing case is the common one: the desktop model
+ *   otherwise sometimes answers in Traditional Chinese, and the user reads that as
+ *   a defect in this app. It is a *preference about the model's output*, not a
+ *   locale switch — this app still renders whatever text comes back, unchanged.
+ *   Turning it off restores byte-exact passthrough with no directive at all.
  */
 data class AppSettings(
     val notifyOnDone: Boolean = true,
@@ -41,6 +49,7 @@ data class AppSettings(
     val notifyOnDisconnect: Boolean = true,
     val keepScreenAwake: Boolean = false,
     val lastSessionId: String? = null,
+    val simplifiedChinese: Boolean = true,
 )
 
 /**
@@ -64,6 +73,7 @@ class SettingsStore(private val context: Context) {
             notifyOnDisconnect = p[KEY_NOTIFY_DISCONNECT] ?: true,
             keepScreenAwake = p[KEY_KEEP_AWAKE] ?: false,
             lastSessionId = p[KEY_LAST_SESSION],
+            simplifiedChinese = p[KEY_SIMPLIFIED_CHINESE] ?: true,
         )
     }
 
@@ -71,6 +81,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setNotifyOnApproval(value: Boolean) = put(KEY_NOTIFY_APPROVAL, value)
     suspend fun setNotifyOnDisconnect(value: Boolean) = put(KEY_NOTIFY_DISCONNECT, value)
     suspend fun setKeepScreenAwake(value: Boolean) = put(KEY_KEEP_AWAKE, value)
+    suspend fun setSimplifiedChinese(value: Boolean) = put(KEY_SIMPLIFIED_CHINESE, value)
 
     /** Passing `null` clears the remembered session. */
     suspend fun setLastSession(id: String?) = put(KEY_LAST_SESSION, id)
@@ -87,5 +98,6 @@ class SettingsStore(private val context: Context) {
         val KEY_NOTIFY_DISCONNECT = booleanPreferencesKey("notify_disconnect")
         val KEY_KEEP_AWAKE = booleanPreferencesKey("keep_awake")
         val KEY_LAST_SESSION = stringPreferencesKey("last_session")
+        val KEY_SIMPLIFIED_CHINESE = booleanPreferencesKey("simplified_chinese")
     }
 }

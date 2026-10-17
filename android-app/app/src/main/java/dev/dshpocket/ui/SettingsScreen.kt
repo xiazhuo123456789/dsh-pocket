@@ -73,6 +73,7 @@ fun SettingsScreen(
     onNotifyDone: (Boolean) -> Unit,
     onNotifyApproval: (Boolean) -> Unit,
     onNotifyDisconnect: (Boolean) -> Unit,
+    onSimplifiedChinese: (Boolean) -> Unit,
     onReconnect: () -> Unit,
     onUnpair: () -> Unit,
 ) {
@@ -201,6 +202,22 @@ fun SettingsScreen(
                 subtitle = "与电脑失去连接时提醒",
                 checked = settings.notifyOnDisconnect,
                 onCheckedChange = onNotifyDisconnect,
+            )
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            // ---- 对话 ---------------------------------------------------------
+            // 这一项容易被误认为"界面语言"，其实是**模型输出语言**：本应用的
+            // 界面本来就是中文，回复用的是电脑端模型自己的语言偏好。Remote API
+            // 没有"设置回复语言"的接口，手机端唯一正当的办法是在每条消息后附上
+            // 一句指令，所以副标题必须写清楚这一点 —— 用户有权知道自己发出的
+            // 内容里多了一句不是自己打的话。
+            SectionLabel("对话", Modifier.padding(start = 16.dp))
+
+            SwitchRow(
+                title = "用简体中文回答",
+                subtitle = "会给每条消息附加一句「请用简体中文回答」的指令",
+                checked = settings.simplifiedChinese,
+                onCheckedChange = onSimplifiedChinese,
             )
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))

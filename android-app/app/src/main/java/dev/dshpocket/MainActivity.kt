@@ -236,6 +236,7 @@ private fun PocketRoot(state: UiState) {
             onNotifyDone = app().viewModel::setNotifyOnDone,
             onNotifyApproval = app().viewModel::setNotifyOnApproval,
             onNotifyDisconnect = app().viewModel::setNotifyOnDisconnect,
+            onSimplifiedChinese = app().viewModel::setSimplifiedChinese,
             onReconnect = app().viewModel::reconnect,
             onUnpair = {
                 showSettings = false

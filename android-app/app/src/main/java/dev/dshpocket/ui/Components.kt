@@ -191,25 +191,41 @@ fun EmptyState(
 }
 
 /**
- * 聊天气泡背景色 — 对齐桌面端 neutral-bluish 色阶。
+ * 聊天气泡的底色与文字色，跟随当前主题（明/暗）。
  *
- * 四个角色色取自桌面端 `--dsw-static-neutral-bluish-*` 色阶，深色叠加：
- * - User (blue-ish) 品牌蓝深底
- * - Assistant 中性深底
- * - Tool 最深底（视觉后退）
- * - System 介于 Tool 与 Assistant 之间
+ * ### 为什么改成跟随主题（之前的写法是错的）
  *
- * 刻意不取 Material scheme 的值。聊天面在两套主题里都是固定深色画布——
- * 深色背景在浅色主题下也不变，因为一个转写栏的底色跟着系统切换只会更难读。
- * 角色色只需互相可区分，不需要与 App 其余部分协调。
+ * 早先这里返回四个固定的深色（`#232324` 之类）作为气泡底色，理由是"对齐桌面端
+ * 的深色转写画布"。这在深色主题下没问题，但在**浅色主题**下每一句话都是一块
+ * 近黑色的方块压在白色背景上 —— 视觉上像贴纸没撕干净，而且长回复整屏都是黑的，
+ * 读起来累。用户实测反馈"回答背景颜色太丑"就是这一条。
+ *
+ * 桌面端实际上并没有"固定深色画布"这个设定：它的转写区跟随主题，助手段落用
+ * 比背景高一阶的中性面，用户句用品牌蓝容器。所以正确做法是把这四种角色映射到
+ * [MaterialTheme] 的分层槽位，由主题决定明暗：
+ *
+ * | 角色 | 背景 | 文字 |
+ * |---|---|---|
+ * | User | `primaryContainer` | `onPrimaryContainer` |
+ * | Assistant | `surfaceContainerHigh` | `onSurface` |
+ * | Tool | `surfaceContainerLow` | `onSurfaceVariant` |
+ * | System | `surfaceContainer` | `onSurfaceVariant` |
+ *
+ * 这样明暗两套主题都自动成立，也不再需要手写 `#E0E0E0` 这种写死的文字色 ——
+ * 写死的近白色一旦遇到浅色气泡就会变成白字白底。
+ *
+ * @return 气泡底色 to 文字色。
  */
-fun roleColor(role: ChatItem.Role): Color = when (role) {
-    // User: DeepSeek 品牌蓝深底 — 来自 --dsw-static-deepseek-800
-    ChatItem.Role.User -> Color(0xFF34415B)
-    // Assistant: 中性蓝灰深底 — --dsw-static-neutral-bluish-875
-    ChatItem.Role.Assistant -> Color(0xFF232324)
-    // Tool: 最深底 — --dsw-static-neutral-bluish-900
-    ChatItem.Role.Tool -> Color(0xFF1B1B1C)
-    // System: 介于 Tool 与 Assistant — --dsw-static-neutral-bluish-850
-    ChatItem.Role.System -> Color(0xFF2C2C2E)
+@Composable
+fun roleColors(role: ChatItem.Role): Pair<Color, Color> = when (role) {
+    ChatItem.Role.User ->
+        MaterialTheme.colorScheme.primaryContainer to MaterialTheme.colorScheme.onPrimaryContainer
+    ChatItem.Role.Assistant ->
+        MaterialTheme.colorScheme.surfaceContainerHigh to MaterialTheme.colorScheme.onSurface
+    // 工具调用是参考材料而非对人说的话：用更低一阶的表面 + 次级文字色，
+    // 让它在视觉上退到后面，但仍然可读。
+    ChatItem.Role.Tool ->
+        MaterialTheme.colorScheme.surfaceContainerLow to MaterialTheme.colorScheme.onSurfaceVariant
+    ChatItem.Role.System ->
+        MaterialTheme.colorScheme.surfaceContainer to MaterialTheme.colorScheme.onSurfaceVariant
 }
