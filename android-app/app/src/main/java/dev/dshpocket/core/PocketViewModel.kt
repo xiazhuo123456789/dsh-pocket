@@ -501,6 +501,8 @@ class PocketViewModel(
         }
         val updated = current.copy(baseUrl = trimmed, label = trimmed)
         credentials.save(updated)
+        // 记住这个地址：换域名后用户最需要的就是「上次那个能不能再试一次」。
+        scope.launch { settings.addRecentAddress(trimmed) }
         _state.update { it.copy(paired = updated) }
         connect(updated)
     }

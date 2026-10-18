@@ -33,8 +33,8 @@ android {
         //   * 补 Markdown 表格与分隔线渲染。0.5.0 把表格当普通段落打印，屏幕上
         //     就是一串竖线，这是用户说「乱七八糟」的直接来源。
         //   * 打开会话先显示上次的渲染结果，不再每次空白几秒。
-        versionCode = 11
-        versionName = "0.10.0"
+        versionCode = 12
+        versionName = "0.11.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

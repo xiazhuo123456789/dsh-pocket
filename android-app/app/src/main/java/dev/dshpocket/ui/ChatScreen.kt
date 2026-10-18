@@ -1,5 +1,6 @@
 package dev.dshpocket.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -552,7 +553,10 @@ private fun AssistantBlock(item: ChatItem) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         // 比页面底色亮一阶：读作"这是 AI 的回答"，但不是"对话气泡"。
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        // 半透明 + 1dp 细边是「薄玻璃」的观感来源。不用真实模糊：
+        // 实时 blur 需要 API 31+，而且在长列表上逐帧模糊会明显掉帧。
+        color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             MarkdownText(

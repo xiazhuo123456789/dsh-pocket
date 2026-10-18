@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -120,22 +123,69 @@ fun SettingsScreen(
     }
 
     if (editingAddress) {
+        // 预填当前地址：改地址最常见的情形是「旧地址失效了，我要换成新的」，
+        // 从空白框开始等于要求用户先回忆旧值。历史地址则是唯一可能替用户
+        // 想起「上次能用的是哪个」的东西 —— 域名是电脑端生成的，手机感知不到。
         var draft by remember(paired?.baseUrl) { mutableStateOf(paired?.baseUrl.orEmpty()) }
+        var pasted by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { editingAddress = false },
             title = { Text("修改电脑地址") },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     Text(
-                        "电脑上那个 `trycloudflare` 地址每次重启电脑都会换一个，换掉之后旧的地址就再也连不上，" +
-                            "但这台手机在电脑上的授权还在。把新地址填进来就不用重新配对。",
+                        "电脑上的临时隧道地址每次重启都会变，换了之后旧地址就连不上，" +
+                            "但这台手机在电脑上的授权还在。换成新地址就不用重新配对。",
+                        style = MaterialTheme.typography.bodyMedium,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = draft,
                         onValueChange = { draft = it },
                         singleLine = true,
-                        label = { Text("https://…trycloudflare.com") },
+                        label = { Text("电脑地址") },
+                        placeholder = { Text("https://…trycloudflare.com") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (settings.recentAddresses.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            "用过的地址",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        settings.recentAddresses.forEach { address ->
+                            Text(
+                                text = address,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { draft = address }
+                                    .padding(vertical = 8.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        "或者粘贴电脑上整段配对链接，只取其中的地址",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = pasted,
+                        onValueChange = { text ->
+                            pasted = text
+                            // 只提取 `https://host` 这一段：配对链接里还带着一次性令牌，
+                            // 把它当地址存下来既连不上，也等于把令牌写进设置。
+                            Regex("""https?://[^/\s]+""").find(text)?.let { draft = it.value }
+                        },
+                        singleLine = true,
+                        label = { Text("配对链接") },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 /**
@@ -50,6 +51,8 @@ data class AppSettings(
     val keepScreenAwake: Boolean = false,
     val lastSessionId: String? = null,
     val simplifiedChinese: Boolean = true,
+    /** 最近用过的电脑地址，最新的在前；只用于「修改地址」时一键填回。 */
+    val recentAddresses: List<String> = emptyList(),
 )
 
 /**
@@ -74,6 +77,7 @@ class SettingsStore(private val context: Context) {
             keepScreenAwake = p[KEY_KEEP_AWAKE] ?: false,
             lastSessionId = p[KEY_LAST_SESSION],
             simplifiedChinese = p[KEY_SIMPLIFIED_CHINESE] ?: true,
+            recentAddresses = p[KEY_RECENT_ADDRESSES]?.split("\n")?.filter { it.isNotBlank() } ?: emptyList(),
         )
     }
 
@@ -82,6 +86,25 @@ class SettingsStore(private val context: Context) {
     suspend fun setNotifyOnDisconnect(value: Boolean) = put(KEY_NOTIFY_DISCONNECT, value)
     suspend fun setKeepScreenAwake(value: Boolean) = put(KEY_KEEP_AWAKE, value)
     suspend fun setSimplifiedChinese(value: Boolean) = put(KEY_SIMPLIFIED_CHINESE, value)
+
+    /**
+     * 记住用过的电脑地址。
+     *
+     * 桌面端的 `trycloudflare` 域名每次重启都变，所以「上一次能用」不等于「现在能用」，
+     * 但**同一台电脑的几个历史地址**是这个 app 唯一可能替用户想起来的东西。没有它，
+     * 换域名后用户只能凭空手打一串随机英文，这是修改地址这件事最难用的地方。
+     *
+     * 只保留最近 [MAX_RECENT_ADDRESSES] 条：这是个便利功能，不是审计日志，
+     * 无限增长会让设置文件变成一份域名历史记录。
+     */
+    suspend fun addRecentAddress(address: String) {
+        val trimmed = address.trim().trimEnd('/')
+        if (trimmed.isBlank()) return
+        val stored = context.settingsDataStore.data.first()[KEY_RECENT_ADDRESSES].orEmpty()
+        val current = stored.split("\n").filter { it.isNotBlank() }
+        val next = (listOf(trimmed) + current.filter { it != trimmed }).take(MAX_RECENT_ADDRESSES)
+        context.settingsDataStore.edit { it[KEY_RECENT_ADDRESSES] = next.joinToString("\n") }
+    }
 
     /** Passing `null` clears the remembered session. */
     suspend fun setLastSession(id: String?) = put(KEY_LAST_SESSION, id)
@@ -93,11 +116,13 @@ class SettingsStore(private val context: Context) {
     }
 
     private companion object {
+        const val MAX_RECENT_ADDRESSES = 5
         val KEY_NOTIFY_DONE = booleanPreferencesKey("notify_done")
         val KEY_NOTIFY_APPROVAL = booleanPreferencesKey("notify_approval")
         val KEY_NOTIFY_DISCONNECT = booleanPreferencesKey("notify_disconnect")
         val KEY_KEEP_AWAKE = booleanPreferencesKey("keep_awake")
         val KEY_LAST_SESSION = stringPreferencesKey("last_session")
         val KEY_SIMPLIFIED_CHINESE = booleanPreferencesKey("simplified_chinese")
+        val KEY_RECENT_ADDRESSES = stringPreferencesKey("recent_addresses")
     }
 }
