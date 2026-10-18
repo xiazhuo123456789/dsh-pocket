@@ -34,6 +34,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
@@ -65,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -587,37 +593,39 @@ private fun ToolBlock(item: ChatItem) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .clickable { if (output.isNotEmpty()) expanded = !expanded }
-            .padding(horizontal = 2.dp, vertical = 2.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        // A tiny square "icon box" is what makes a step read as a step rather than
+        // as prose: the desktop transcript does the same, one row per action.
         Box(
             Modifier
-                .width(2.dp)
-                .heightIn(min = 20.dp)
-                .fillMaxHeight()
+                .size(20.dp)
+                .clip(RoundedCornerShape(6.dp))
                 .background(
-                    if (item.isError) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.outlineVariant,
-                    RoundedCornerShape(1.dp),
-                )
-        )
-        Spacer(Modifier.width(10.dp))
+                    if (item.isError) MaterialTheme.colorScheme.errorContainer
+                    else MaterialTheme.colorScheme.surfaceContainerHighest
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (item.isError) Icons.Default.ErrorOutline
+                else stepIcon(item.toolName),
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = if (item.isError) MaterialTheme.colorScheme.onErrorContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
         Column(Modifier.weight(1f)) {
-            // --- 头行: 图标 + 工具名 + 状态 ---
+            // --- 头行: 「思考 / 运行命令 / 读取 / 编辑」+ 摘要 ---
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (item.isError) Icons.Default.ErrorOutline
-                    else Icons.Default.Build,
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = if (item.isError) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(5.dp))
                 Text(
-                    text = item.toolName ?: "工具",
+                    text = stepLabel(item.toolName),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (item.isError) MaterialTheme.colorScheme.error
                     else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -894,4 +902,36 @@ private fun Composer(
             }
         }
     }
+}
+
+/**
+ * Human wording for one tool step.
+ *
+ * The desktop transcript labels steps by *intent* ("思考", "运行命令", "读取",
+ * "编辑"), not by internal tool name (`bash`, `read`, `edit`). Those names are
+ * implementation detail of the agent runtime and mean nothing to a user reading
+ * the log on a phone, so they are mapped here — and unknown tools fall back to
+ * "工具" rather than leaking a raw identifier.
+ */
+private fun stepLabel(toolName: String?): String = when (toolName?.lowercase()) {
+    "thinking", "reasoning", "think" -> "思考"
+    "bash", "pwsh", "shell", "powershell", "run", "terminal" -> "运行命令"
+    "read", "file_read", "view" -> "读取"
+    "edit", "write", "file_write", "apply_patch", "patch" -> "编辑"
+    "grep", "glob", "find", "search" -> "搜索"
+    "web_search", "web_fetch", "fetch" -> "联网"
+    "task", "todo", "todowrite" -> "计划"
+    "agent", "subagent", "task_agent" -> "子任务"
+    else -> "工具"
+}
+
+/** Paired with [stepLabel] so the icon and the wording never disagree. */
+private fun stepIcon(toolName: String?): ImageVector = when (toolName?.lowercase()) {
+    "bash", "pwsh", "shell", "powershell", "run", "terminal" -> Icons.Default.Terminal
+    "read", "file_read", "view" -> Icons.Default.FileOpen
+    "edit", "write", "file_write", "apply_patch", "patch" -> Icons.Default.Edit
+    "grep", "glob", "find", "search" -> Icons.Default.Search
+    "web_search", "web_fetch", "fetch" -> Icons.Default.Search
+    "thinking", "reasoning", "think" -> Icons.Default.AutoAwesome
+    else -> Icons.Default.Build
 }
