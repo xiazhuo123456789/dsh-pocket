@@ -437,8 +437,34 @@ class SessionApi(private val client: GatewayClient) {
      * `assistantStream: true` is what makes token deltas arrive at all. Without
      * it the stream only carries completed journal events, which would make the
      * UI feel frozen during a long answer.
+     *
+     * ### 为什么要限制历史窗口
+     *
+     * 不传限制时，快照会把**整个会话日志**一次性送回来。一个跑过几十轮工具调用的
+     * 会话，日志里除了对话还有每一步的 `tool/call`、`tool/result`、思考过程，动辄
+     * 上千条记录几 MB JSON —— 全都要经过隧道（还可能跨国）才能到手机。这是用户
+     * 反馈「每次加载出来加载的很慢」的真实原因，界面再怎么优化缓存也盖不住这段
+     * 传输时间。
+     *
+     * 协议侧支持两个限制（桌面端 `session/follow` 的请求 schema）：
+     * * `maxMessages` —— 最多返回多少条 append 来源的 user/assistant 消息；
+     * * `turnWindow: {minMessages, minTurns}` —— 越过至少这么多条消息**和**至少
+     *   这么多轮之后，在下一个轮次起点停下。
+     *
+     * 两个都给：`maxMessages` 是硬上限（防止某一轮里几十条工具消息把窗口撑爆），
+     * `turnWindow` 保证窗口落在轮次边界上（否则可能从一个回答的中间开始，用户看到
+     * 半句话）。二者同时到达时以「先满足的那个」为准，取到的是**最近**的一段历史。
+     *
+     * @param maxMessages 单次返回的消息条数上限；`null` 表示不限制（旧行为）。
+     * @param minMessages `turnWindow` 里的消息下限。
+     * @param minTurns `turnWindow` 里的轮次下限。
      */
-    suspend fun follow(sessionId: String): GatewayClient.StreamHandle {
+    suspend fun follow(
+        sessionId: String,
+        maxMessages: Int? = null,
+        minMessages: Int? = null,
+        minTurns: Int? = null,
+    ): GatewayClient.StreamHandle {
         val req = buildJsonObject {
             put(
                 "address",
@@ -448,6 +474,16 @@ class SessionApi(private val client: GatewayClient) {
                 }
             )
             put("assistantStream", true)
+            if (maxMessages != null) put("maxMessages", maxMessages)
+            if (minMessages != null || minTurns != null) {
+                put(
+                    "turnWindow",
+                    buildJsonObject {
+                        if (minMessages != null) put("minMessages", minMessages)
+                        if (minTurns != null) put("minTurns", minTurns)
+                    }
+                )
+            }
         }
         return client.openStream("session/follow", buildJsonObject { put("request", req) })
     }

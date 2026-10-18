@@ -639,7 +639,12 @@ class PocketViewModel(
 
         chatJob = scope.launch {
             try {
-                val handle = api.follow(sessionId)
+                val handle = api.follow(
+                    sessionId,
+                    maxMessages = HISTORY_MAX_MESSAGES,
+                    minMessages = HISTORY_MIN_MESSAGES,
+                    minTurns = HISTORY_MIN_TURNS,
+                )
                 followHandle = handle
                 handle.items.collect { value ->
                     if (activeSessionId != sessionId) return@collect
@@ -1689,7 +1694,21 @@ class PocketViewModel(
      * empty string, so an error strip can never render blank.
      */
     private fun describe(e: Throwable): String = when (e) {
-        is RemoteCallException -> "${e.error.code}: ${e.error.message}"
+        is RemoteCallException -> when (e.error.code) {
+            // 403 `unpaired` 的真实含义是「这台设备的配对记录在电脑端不存在了」。
+            // 桌面端最多保存 4 台设备（`maxDevices` 默认 4），**每多配一次就多一条
+            // 记录，第 5 次会把最早的那条挤掉**；再加上长期不用会被清理（空闲 30 天）。
+            // 用户把这理解成「过一段时间就自动取消配对」。只说原始 code 帮不上任何忙，
+            // 所以这里把机制和动作都写出来。
+            "unpaired" -> "这台手机在电脑端的配对记录已不存在（电脑端最多保留 4 台设备，" +
+                "重新配对次数多了会把最早的挤掉）。请到电脑上重新打开「远程控制」面板，" +
+                "用新的二维码或链接再配一次。"
+            // 隧道域名变了连不上时网关根本不会返回业务错误，但插件在 Host 白名单
+            // 不匹配时会走到这里，同样属于「地址过期」。
+            "unauthorized" -> "电脑端不认这个连接地址或设备凭证。多半是电脑重启后隧道地址" +
+                "已经变了，请用新的二维码重新配对。"
+            else -> "${e.error.code}: ${e.error.message}"
+        }
         else -> e.message ?: e::class.java.simpleName
     }
 
@@ -1717,3 +1736,39 @@ class PocketViewModel(
  * 让几个长会话的正文同时驻留，在 4 GB 手机上明显挤占内存。
  */
 private const val TRANSCRIPT_CACHE_SIZE = 6
+
+/**
+ * 打开会话时一次拉取多少历史。
+ *
+ * ### 为什么必须有上限
+ *
+ * 不限时 `session/follow` 会把整个会话日志送回来。跑过几十轮工具调用的会话，
+ * 日志里除了对话还有每一步的 `tool/call`/`tool/result` 和思考过程，上千条记录、
+ * 几 MB JSON，全都要过隧道。用户体感的「每次加载都很慢」主要就是这段传输。
+ *
+ * ### 为什么是 30 条，而不是「不限制」或「80 条」
+ *
+ * 下面这组数字是在真机同款的桌面端上量出来的（`session/follow` 快照，同一个
+ * 312 条记录的会话）：
+ *
+ * | 参数 | 快照记录数 | 字节 |
+ * |---|---|---|
+ * | 不传（桌面默认窗口） | 312 | 529 KB |
+ * | `maxMessages=40` | 242 | 364 KB |
+ * | `maxMessages=30` | 177 | 267 KB |
+ * | `maxMessages=20` | 118 | 206 KB |
+ *
+ * 关键教训：**`maxMessages` 是硬上限，不是「至少」**。它比桌面自己的默认窗口
+ * 大时会把窗口**撑大** —— 早先写成 80，实测反而拿到 516 条记录 / 866 KB，
+ * 比不传还慢一倍。这正是「越修越慢」的原因。
+ *
+ * `turnWindow` 是**下限**（至少保留这么多消息/轮次），只能变大不能变小，所以
+ * 取值必须低于 `maxMessages`，否则它会把窗口又撑回去。
+ *
+ * 30 条大约覆盖最近十几轮问答，打开会话时既能看到上下文，也只需要传 267 KB。
+ * 比这更早的内容目前没有回溯入口（`session/page` 的 `beforeSeq` 尚未接），
+ * 这是本轮刻意接受的取舍 —— 先让「打开就能看、且快」成立。
+ */
+private const val HISTORY_MAX_MESSAGES = 30
+private const val HISTORY_MIN_MESSAGES = 12
+private const val HISTORY_MIN_TURNS = 2
