@@ -184,6 +184,9 @@ class PocketViewModel(
     private var reconnectJob: Job? = null
     private var reconnectAttempt: Int = 0
 
+    /** 连接代际：每拆一次连接就 +1，用来作废过期的重连与过期回调。 */
+    private var connectionGeneration: Int = 0
+
     init {
         // Mirror persisted settings into the snapshot so the UI has exactly one
         // object to read rather than combining flows itself.
@@ -222,8 +225,8 @@ class PocketViewModel(
      * so a malformed stored credential produces an immediate, specific error rather
      * than a connection attempt that hangs.
      */
-    fun connect(paired: PairedDesktop) {
-        disconnectInternal()
+    fun connect(paired: PairedDesktop, fromReconnect: Boolean = false) {
+        disconnectInternal(resetBackoff = !fromReconnect)
         val base = paired.baseUrl.trimEnd('/').toHttpUrlOrNull()
         if (base == null) {
             _state.update {
@@ -347,11 +350,17 @@ class PocketViewModel(
         val paired = credentials.load() ?: return
         val delayMs = (1_000L shl reconnectAttempt.coerceAtMost(5)).coerceAtMost(30_000L)
         reconnectAttempt++
+        val generation = connectionGeneration
         reconnectJob = scope.launch {
             delay(delayMs)
-            // `connect` 会先 `disconnectInternal`，把这一代 socket 与 job 全部
-            // 收干净，再开新的一代，因此不会出现两代共用 `$events` 的情况。
-            connect(paired)
+            // 这一代连接如果已经被用户主动断开、被别的重连取代、或者已经连上了，
+            // 这条迟到的重连必须作废 —— 否则它会去拆掉一条正在工作的连接。
+            if (generation != connectionGeneration) return@launch
+            // 先把句柄置空：`connect` 内部会调 `disconnectInternal`，而它会取消
+            // `reconnectJob`。如果不清空，这里就是在取消自己，协程会在下一个挂起点
+            // 被掐断，连接建到一半就散架，然后再次触发重连 —— 这就是「反复连接」。
+            reconnectJob = null
+            connect(paired, fromReconnect = true)
         }
     }
 
@@ -381,12 +390,13 @@ class PocketViewModel(
      * fields. Doing it in this order means a frame cannot arrive between "client is
      * closed" and "we cleared the session id" and resurrect stale state.
      */
-    private fun disconnectInternal() {
+    private fun disconnectInternal(resetBackoff: Boolean = true) {
         // 先取消重连链：否则用户主动「断开 / 取消配对」之后，这条链还会在几秒后
         // 把连接重新建起来，表现为"我明明断了它自己又连上了"。
         reconnectJob?.cancel()
         reconnectJob = null
-        reconnectAttempt = 0
+        connectionGeneration++
+        if (resetBackoff) reconnectAttempt = 0
         chatJob?.cancel()
         eventsJob?.cancel()
         followHandle?.cancel()
