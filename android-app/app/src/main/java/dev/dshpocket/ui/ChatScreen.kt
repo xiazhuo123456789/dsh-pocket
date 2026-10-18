@@ -734,44 +734,50 @@ private fun Composer(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
             ) {
-            OutlinedTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("描述你要 Harness 做的事…") },
-                maxLines = 5,
-                shape = RoundedCornerShape(22.dp),
-                // 无边框 + 填充底，比一圈描边更像"可以写字的地方"，也不会在
-                // 正在输入时与聚焦框的蓝线叠成双层。
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                ),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-            )
-            Spacer(Modifier.size(8.dp))
-            if (busy) {
-                FilledIconButton(
-                    onClick = onStop,
-                    enabled = stopState != ChatState.StopState.Requested,
-                    modifier = Modifier.size(48.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError,
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("描述你要 Harness 做的事…") },
+                    maxLines = 5,
+                    shape = RoundedCornerShape(22.dp),
+                    // 无边框 + 填充底，比一圈描边更像"可以写字的地方"，也不会在
+                    // 正在输入时与聚焦框的蓝线叠成双层。
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                     ),
-                ) {
-                    Icon(Icons.Default.Stop, contentDescription = "停止")
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                )
+                Spacer(Modifier.size(8.dp))
+                // 发送键与停止键共用同一格位置，因为它们互斥：busy 时不可能发送。
+                // 两个独立按钮会让人以为"可以一边生成一边再发一条"。
+                if (busy) {
+                    FilledIconButton(
+                        onClick = onStop,
+                        // 已经请求过停止就不再接受第二次点击：重复的 cancel 会让
+                        // 状态机在 Requested 里打转，用户反而以为没生效。
+                        enabled = stopState != ChatState.StopState.Requested,
+                        modifier = Modifier.size(48.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError,
+                        ),
+                    ) {
+                        Icon(Icons.Default.Stop, contentDescription = "停止")
+                    }
+                } else {
+                    FilledIconButton(
+                        onClick = onSend,
+                        // 空白草稿不发。isNotBlank 而不是 isNotEmpty：纯空格不该
+                        // 让模型收到一条没有内容的消息。
+                        enabled = draft.isNotBlank(),
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                    }
                 }
-            } else {
-                FilledIconButton(
-                    onClick = onSend,
-                    enabled = draft.isNotBlank(),
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
-                }
-            }
             }
         }
     }
