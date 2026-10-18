@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -144,6 +145,9 @@ fun CameraScannerDialog(
                         onResult(value)
                         onDismiss()
                     },
+                    // 相机起不来时退出的出口。走同一个 onDismiss，让配对页回到
+                    // 「可以粘贴 / 可以选相册」的状态。
+                    onGiveUp = onDismiss,
                 )
             } else {
                 PermissionGate(
@@ -175,7 +179,7 @@ fun CameraScannerDialog(
  * 只有当权限已授予时才进入这棵子树，所以这里可以无条件地绑定 camera provider。
  */
 @Composable
-private fun LiveScanner(onResult: (String) -> Unit) {
+private fun LiveScanner(onResult: (String) -> Unit, onGiveUp: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -191,6 +195,15 @@ private fun LiveScanner(onResult: (String) -> Unit) {
     val fired = remember { AtomicBoolean(false) }
     var torchOn by remember { mutableStateOf(false) }
     var camera by remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
+
+    // 相机不可用时的说明文字。null = 一切正常（或还没试出来）。
+    //
+    // 为什么需要这个状态：`bindToLifecycle` 会因为没有后置摄像头、被别的应用占用、
+    // 或厂商实现异常而抛异常。原来这里是一句光秃秃的 `runCatching {}`，异常被吞掉，
+    // 屏幕就只是一片黑 —— 用户合理地以为是卡死了，而实际上什么都不会再发生。
+    // manifest 里 `uses-feature camera required="false"` 允许没摄像头的设备安装，
+    // 所以这条路径是真实可达的，不是防御性摆设。
+    var cameraError by remember { mutableStateOf<String?>(null) }
     val previewView = remember {
         PreviewView(context).apply {
             // COMPATIBLE 而不是 PERFORMANCE：后者用 SurfaceView，在不支持硬件
@@ -257,6 +270,20 @@ private fun LiveScanner(onResult: (String) -> Unit) {
                 preview,
                 analysis,
             )
+        }.onFailure { t ->
+            // 三类常见原因分开讲，因为用户的下一步动作完全不同：没有摄像头 =
+            // 改用粘贴/相册；被占用 = 关掉别的相机应用再试；其它 = 报 bug。
+            // 一律说「打开相机失败」会让前两种人去做无用功。
+            cameraError = when {
+                !context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) ->
+                    "这台设备没有摄像头，无法扫码。请改用粘贴配对链接，或从相册选截图。"
+                t is IllegalStateException ->
+                    "摄像头正被其它应用占用。请关掉相机类应用后重试，" +
+                        "或改用粘贴配对链接 / 从相册选截图。"
+                else ->
+                    "无法启动摄像头（${t.message ?: t.javaClass.simpleName}）。" +
+                        "请改用粘贴配对链接，或从相册选截图。"
+            }
         }
 
         awaitCancellation()
@@ -268,6 +295,39 @@ private fun LiveScanner(onResult: (String) -> Unit) {
             factory = { previewView },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // 相机起不来时压在预览上的一层说明。放在预览之上而不是替换它，是为了
+        // 保留同一棵组合树（避免相机 provider 被反复绑定/解绑）。
+        cameraError?.let { message ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.88f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.WarningAmber,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                    )
+                    TextButton(onClick = onGiveUp) {
+                        Text("用其它方式配对", color = Color.White)
+                    }
+                }
+            }
+        }
 
         // 取景框：只是一个视觉引导，识别并不限于框内。加它是为了让「把码放进框里」
         // 这个动作有明确反馈，扫码成功率比凭空对着屏幕高得多。

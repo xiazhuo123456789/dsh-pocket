@@ -69,10 +69,39 @@
 | --- | --- |
 | 加密存储凭据 | `EncryptedSharedPreferences` |
 | 禁止备份 | `allowBackup=false` + `dataExtractionRules` 全排除 |
-| 不申请相机权限 | 扫码走系统图片选择器，只读用户主动选的那张图 |
-| 不申请存储权限 | 同上，用 SAF |
+| 相机权限只在扫码时申请 | 只有按下「扫一扫」才请求，见下方说明 |
+| 不申请存储权限 | 相册那条路走系统图片选择器（`PickVisualMedia`），拿到的是用户主动选的那一张 |
 | 显式错误而非乐观假设 | 网络失败不假装成功 |
 | 通知里的审批按钮受限于活跃连接 | 进程被杀后按钮失效而不是静默丢弃 |
+
+### 关于相机权限（0.4.0 起新增）
+
+0.4.0 之前这个应用**不申请**相机权限，扫码只能从相册选截图。但那条路要求用户先把
+二维码弄到手机上 —— 对「手机控制电脑」这个前提而言是荒谬的一步，所以现在补上了
+摄像头扫码，也就不可避免要 `CAMERA` 权限。
+
+做了这些约束：
+
+- **只在用户按下「扫一扫」时请求**，不在启动时、不在配对页一打开就弹。
+- **拒绝不是死路。** 拒绝后会说明原因并给「用相册」的退路，相册那条路完全不需权限。
+- **画面不出设备。** 帧交给 ML Kit 的**内置**模型在本地解码，不上传、不落盘、不解码
+  二维码以外的任何内容。选内置模型（`com.google.mlkit:barcode-scanning`）而非
+  `play-services-mlkit-barcode-scanning` 也有安全含义：后者首次使用要联网下载模型，
+  而「正在配对」这一刻往往正是网络没配好的时候，下载失败就等于功能不可用。
+- **配对完成后相机立即释放**（`ProcessCameraProvider.unbindAll()` + 生命周期绑定），
+  不会在后台持续占用摄像头。
+
+`AndroidManifest.xml` 里 `CAMERA` 权限配了：
+
+```xml
+<uses-feature android:name="android.hardware.camera" android:required="false" />
+<uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+```
+
+`required="false"` 是刻意的：没有摄像头的设备照样能装、能用粘贴链接和相册两条路，
+Play Store 也不会把它们过滤掉。代价是应用必须自己处理「点了扫一扫但设备没摄像头」
+的情况，`CameraScannerDialog` 在 `ProcessCameraProvider` 拿不到时给的是明确的错误
+文案而不是崩溃。
 
 ## 应用**没有**做什么（不承诺）
 

@@ -18,8 +18,12 @@ android {
         // 之前连续几轮修复都停在 versionCode=1，用户看到的界面其实还是旧包，
         // 而我们的日志里每一次都是"已修复并发布" —— 这个版本号就是为了让这种
         // 情况不可能再发生。
-        versionCode = 4
-        versionName = "0.4.0"
+        //
+        // 0.4.1 是 0.4.0 的补丁：0.4.0 里相机绑定失败被一句光秃秃的
+        // `runCatching {}` 吞掉，没摄像头的设备（manifest 允许安装）只会看到
+        // 一片黑，什么都不会再发生。修法是把三类失败分开讲清楚并给退路。
+        versionCode = 5
+        versionName = "0.4.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

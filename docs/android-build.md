@@ -168,10 +168,31 @@ errorprone 注解。`proguard-rules.pro` 已包含：
 | kotlinx-serialization-json | JSON（lenient，容忍未知字段） |
 | security-crypto | 凭据加密存储 |
 | datastore-preferences | 设置 |
-| zxing core | 二维码解码（仅解码本地图片，不引入相机） |
+| zxing core | 二维码解码（从相册选的那张图） |
+| androidx.camera (CameraX 1.4.0) | 扫码预览与取帧（`camera-core` / `camera-camera2` / `camera-lifecycle` / `camera-view`） |
+| com.google.mlkit:barcode-scanning | 实时帧的二维码检测（**内置模型**，不联网下载） |
 | work-runtime-ktx | 后台约束 |
 
-## 没有用到的权限
+> **为什么实时帧用 ML Kit 而不是 ZXing**：`QrDecoder`（相册那条路）用的就是 ZXing，
+> 它对一张完整清晰的位图很准。但实时预览帧是 YUV、有运动模糊、有屏幕反光，还要在
+> 有限时间里解完才不卡预览。ML Kit 的 barcode scanner 就是为这个场景训练的，且
+> `barcode-scanning` 是内置模型 —— `play-services-mlkit-barcode-scanning` 首次使用
+> 要联网下载，而「正在配对」这一刻往往正是网络没配好的时候。
+>
+> **代价**：`libbarhopper_v3.so` 每个 ABI 3.3–6.1 MiB。`app/build.gradle.kts` 的
+> `packaging.jniLibs.excludes` 剔掉了 x86/x86_64 两份，release 包因此从 24.2 MiB
+> 降到 12.2 MiB；**模拟器上扫码不可用**，相册那条路不受影响。
 
-应用**不申请**相机权限。扫码通过系统图片选择器（`PickVisualMedia`）完成，只在用户
-主动选图时读取那一张图。
+## 权限
+
+| 权限 | 用途 |
+| --- | --- |
+| `INTERNET` | 全部网络通信 |
+| `ACCESS_NETWORK_STATE` | 判断是否有网，用于区分「没网」与「电脑拒绝」 |
+| `POST_NOTIFICATIONS` | 任务完成 / 审批 / 断线通知（API 33+ 运行时申请） |
+| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_DATA_SYNC` | 任务在飞时保持长连接不被冻结 |
+| `WAKE_LOCK` | 前台服务期间保证能收到推送帧 |
+| `CAMERA` | **仅**用户按下「扫一扫」时申请，用于扫配对二维码 |
+
+`CAMERA` 之外没有任何敏感权限：不申请存储（相册走 `PickVisualMedia`）、不申请通讯录、
+不申请位置、不申请电话/短信。
