@@ -8,7 +8,16 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+      Camera is used for exactly one thing: scanning the pairing QR with the live
+      camera on the first-run screen. It is `required="false"` on the feature and
+      requested at runtime only when "扫一扫" is tapped, so a phone without a
+      camera (or a user who declines) still pairs by pasting the link or picking
+      a screenshot.
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <application
         android:name=".PocketApp"

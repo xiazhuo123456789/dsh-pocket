@@ -18,8 +18,8 @@ android {
         // 之前连续几轮修复都停在 versionCode=1，用户看到的界面其实还是旧包，
         // 而我们的日志里每一次都是"已修复并发布" —— 这个版本号就是为了让这种
         // 情况不可能再发生。
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }
@@ -54,6 +54,23 @@ android {
             "/META-INF/{AL2.0,LGPL2.1}",
             "/META-INF/versions/9/previous-compilation-data.bin",
         )
+
+        // 只保留 ARM 的 ML Kit 原生库（libbarhopper_v3.so，每个 ABI 约 3.3–6.1 MB）。
+        //
+        // 加扫码之前 release APK 是 1.8 MB；把 CameraX + 内置 ML Kit 模型加进来之后
+        // 变成 24.2 MB —— 因为那一个 .so 给四种 ABI 各打了一份。这个 app 的实机目标
+        // 就是手机（minSdk 26，2026 年的手机全是 arm64-v8a），x86 / x86_64 那两份唯一
+        // 的用途是在模拟器上跑。为它们付 12 MB 下载量、以及首屏装包时间，不划算。
+        //
+        // 代价说清楚：**模拟器上扫码功能会不可用**（相册选图仍然可用，那条路纯 ZXing）。
+        // 因此这里只过滤 `lib/*/libbarhopper_v3.so`，不动其它任何 .so —— 万一将来有
+        // 别的依赖需要 x86，也不会被这条规则误伤。
+        jniLibs {
+            excludes += setOf(
+                "lib/x86/libbarhopper_v3.so",
+                "lib/x86_64/libbarhopper_v3.so",
+            )
+        }
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
@@ -90,6 +107,30 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     implementation("com.google.zxing:core:3.5.3")
+
+    // CameraX + ML Kit barcode scanning, for the "scan the QR with the camera"
+    // path. Two notes on why these specific artifacts:
+    //
+    //  * `camera-camera2` is the real camera implementation; `camera-lifecycle`
+    //    ties the session to the composable's lifecycle so the lens is released
+    //    when the pairing screen goes away. Declaring only `camera-core` is a
+    //    common mistake -- it provides the API but no backend, so preview stays
+    //    black.
+    //  * `barcode-scanning` is the *bundled* ML Kit model (~2.5 MB, no Play
+    //    Services dependency, works offline and on devices without GMS). The
+    //    unbundled variant (`com.google.android.gms:play-services-mlkit-barcode-scanning`)
+    //    is smaller but downloads its model on first use, which fails exactly
+    //    when the user is standing at a computer with no network yet -- the
+    //    moment this feature is used.
+    //
+    // This is the ONLY reason the app asks for the camera, and the permission is
+    // requested lazily (when "扫一扫" is tapped), never at startup.
+    val camerax = "1.4.0"
+    implementation("androidx.camera:camera-core:$camerax")
+    implementation("androidx.camera:camera-camera2:$camerax")
+    implementation("androidx.camera:camera-lifecycle:$camerax")
+    implementation("androidx.camera:camera-view:$camerax")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

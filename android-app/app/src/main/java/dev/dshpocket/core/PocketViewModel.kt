@@ -646,7 +646,9 @@ class PocketViewModel(
         val api = api ?: return
         when (val frame = api.decodeFrame(value)) {
             is SessionApi.FollowFrame.Snapshot -> {
-                val items = frame.records.mapNotNull { toChatItem(it) }
+                // Pair each tool result into its call so the backlog shows one
+                // row per tool run, matching what the live path produces.
+                val items = pairToolEntries(frame.records.mapNotNull { toChatItem(it) })
                 _state.update { st ->
                     st.copy(
                         chat = st.chat.copy(
@@ -864,15 +866,26 @@ class PocketViewModel(
             }
 
             "tool/call" -> {
-                val name = event.data.asObjOrNull()?.string("name") ?: return
+                val data = event.data.asObjOrNull() ?: return
+                val name = data.string("name") ?: return
+                val callId = data.string("callId")
                 _state.update { st ->
-                    st.copy(
+                    // A re-delivered call (reconnect replay) must not append a
+                    // second row for the same run.
+                    if (callId != null && st.chat.items.any { it.toolCallId == callId }) st
+                    else st.copy(
                         chat = st.chat.copy(
                             items = st.chat.items + ChatItem(
                                 key = "t-${event.seq}",
                                 role = ChatItem.Role.Tool,
-                                text = name,
+                                // Body arrives with the result; until then the
+                                // row renders as running with the argument
+                                // summary as its subtitle.
+                                text = "",
+                                detail = summarizeToolArguments(data.string("arguments")),
                                 toolName = name,
+                                toolRunning = true,
+                                toolCallId = callId,
                             )
                         )
                     )
@@ -880,20 +893,54 @@ class PocketViewModel(
             }
 
             "tool/result" -> {
-                val msg = event.data.asObjOrNull()?.obj("message")
+                val data = event.data.asObjOrNull() ?: return
+                val msg = data.obj("message")
                 val text = Json.contentText(msg?.arr("content"))
-                if (text.isBlank()) return
+                val callId = msg?.string("toolCallId")
+                    ?: msg?.obj("source")?.string("callId")
+                    ?: data.string("callId")
+                val errorText = data.obj("error")?.let { err ->
+                    listOfNotNull(err.string("name"), err.string("reason") ?: err.string("code"))
+                        .joinToString(" · ")
+                        .takeIf { it.isNotBlank() }
+                }
+                val body = text.ifBlank { errorText ?: "" }
+                val failed = msg?.bool("isError") == true || data.obj("error") != null
+                if (body.isBlank() && callId == null) return
                 _state.update { st ->
-                    st.copy(
-                        chat = st.chat.copy(
-                            items = st.chat.items + ChatItem(
-                                key = "tr-${event.seq}",
-                                role = ChatItem.Role.Tool,
-                                text = text.take(2000),
-                                isError = msg?.bool("isError") == true,
+                    // Find the call row this result belongs to and update it in
+                    // place. Appending instead was the original bug: the result
+                    // became an unlabelled grey box underneath the call chip, and
+                    // with three tools in a turn you could not tell which output
+                    // belonged to which call.
+                    val index = callId?.let { id ->
+                        st.chat.items.indexOfFirst { it.toolCallId == id && it.toolRunning }
+                    } ?: -1
+                    if (index >= 0) {
+                        val items = st.chat.items.toMutableList()
+                        items[index] = items[index].copy(
+                            text = body.take(2000),
+                            isError = failed,
+                            toolRunning = false,
+                        )
+                        st.copy(chat = st.chat.copy(items = items))
+                    } else {
+                        // Orphan result: the snapshot cursor landed after its
+                        // call. Show it rather than drop it -- losing output is
+                        // worse than showing it detached.
+                        st.copy(
+                            chat = st.chat.copy(
+                                items = st.chat.items + ChatItem(
+                                    key = "tr-${event.seq}",
+                                    role = ChatItem.Role.Tool,
+                                    text = body.take(2000),
+                                    isError = failed,
+                                    toolRunning = false,
+                                    toolCallId = callId,
+                                )
                             )
                         )
-                    )
+                    }
                 }
             }
 
@@ -1179,13 +1226,21 @@ class PocketViewModel(
             try {
                 val (selection, permission) = api.preferences(sid)
                 _state.update { st ->
+                    // A brand-new session reports `modelSelection.next = null`, because
+                    // the desktop leaves it unset until someone picks one: the turn then
+                    // runs on the desktop's *global* default, which `session/modelCatalog`
+                    // publishes as `default`. Showing "未知" there would be needlessly
+                    // vague -- we do know which model the next turn will use. Falling back
+                    // is safe because it is the same value the desktop would apply.
+                    val effective = selection
+                        ?: st.chat.modelCatalog?.defaultSelection?.takeIf { it.model.isNotEmpty() }
                     // Guard against a session switch during the round trip: writing
                     // another conversation's model into this composer would be
                     // worse than showing "未知" for a moment.
                     if (st.chat.sessionId != sid) st
                     else st.copy(
                         chat = st.chat.copy(
-                            model = selection ?: st.chat.model,
+                            model = effective ?: st.chat.model,
                             permission = permission ?: st.chat.permission,
                         )
                     )

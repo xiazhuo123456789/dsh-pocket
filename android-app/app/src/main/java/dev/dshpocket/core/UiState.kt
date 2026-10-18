@@ -63,23 +63,53 @@ data class SessionSummary(
 )
 
 /**
- * A single rendered bubble in the conversation.
+ * A single rendered entry in the conversation.
+ *
+ * ### Why tools are one row, not two
+ *
+ * The Host journals a tool run as two events — `tool/call {callId, name,
+ * arguments}` and `tool/result {message, error?}` — which arrive seconds or
+ * minutes apart. Rendering each event as its own block produced the "乱七八糟"
+ * transcript users complained about: a grey `工具 · edit` chip, then a separate
+ * grey `工具 · 调用` box whose text ("The file … has been updated successfully")
+ * had no visible link to the chip above it. With several tools in one turn you
+ * could not tell which output belonged to which call.
+ *
+ * So the two events are paired by `callId` into a **single** item: the tool name
+ * and a short argument summary stay visible as the header, and the result text
+ * becomes the body. While the result has not arrived yet the item is
+ * [toolRunning]; after it arrives the same row is updated in place rather than
+ * appending a second one.
  *
  * @param key stable identity for the `LazyColumn`. Built from the record's own
  *   event identity so a re-delivered frame updates a row instead of appending a
  *   duplicate.
+ * @param text the body. For [Role.Tool] this is the *result* text (may be empty
+ *   while [toolRunning]).
+ * @param detail one-line secondary text under the header: for a tool call it is
+ *   the argument summary (the command, the file path), for other roles unused.
+ *   Keeping it separate from [text] lets the UI style it as metadata instead of
+ *   body copy.
  * @param streaming true only for the synthetic in-progress bubble, which is not an
  *   item of [ChatState.items] but is rendered after them.
  * @param toolName set only for [Role.Tool]; surfaced as the "工具 · …" label so a
  *   long transcript still shows *which* tool ran.
+ * @param toolRunning true when the `tool/call` has been seen but no matching
+ *   `tool/result` has arrived. Drives the spinner and suppresses the empty-body
+ *   placeholder.
+ * @param toolCallId the Host's `callId`, kept so the live handler can find this
+ *   row again when the result lands. Null for non-tool items.
  */
 data class ChatItem(
     val key: String,
     val role: Role,
     val text: String,
+    val detail: String? = null,
     val streaming: Boolean = false,
     val isError: Boolean = false,
     val toolName: String? = null,
+    val toolRunning: Boolean = false,
+    val toolCallId: String? = null,
 ) {
     /**
      * [System] exists for transcript notices the Host itself inserted; it is not

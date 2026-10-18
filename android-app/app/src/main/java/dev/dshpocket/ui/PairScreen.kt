@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,20 +47,24 @@ import dev.dshpocket.qr.QrDecoder
 /**
  * 首次运行界面：把电脑端配对 QR / 链接变成已保存凭据。
  *
- * 桌面端渲染一个 QR，载荷是 `/pair-accept?pair=<token>` URL。扫描会把整个
- * URL 交给应用，但粘贴永远可用，所以流程不依赖相机或相册图片的清晰度。
+ * ### 三条配对路径，都是主路径
  *
- * ### 为什么用系统相册选择器而非实时相机预览
+ * | 路径 | 需要的权限 | 适用场景 |
+ * |---|---|---|
+ * | 打开摄像头扫码 | CAMERA（按需请求） | 默认情况：电脑屏幕就在眼前 |
+ * | 从相册选二维码图片 | 无 | 二维码已经被截图/拍照，或在另一台设备上 |
+ * | 粘贴链接 | 无 | 没有摄像头、相机坏了、或链接是聊天里发过来的 |
  *
- * 配对每台电脑只做一次。一个相机权限、预览 surface、分析器循环及其生命周期
- * 管理，只为了省一张截图。系统 **photo picker** 在现代 Android 上**零权限**，
- * 且覆盖真实工作流（桌面端把 QR 显示在屏幕上，用户截图或拍照）。
+ * 早期版本只有后两条，要求用户先把二维码「弄到手机上」才能配对 —— 对一个
+ * 「手机控制电脑」的应用，第一次连接就绕这么一圈是不合理的。摄像头那条路后来
+ * 补上了（见 [CameraScannerDialog]），但另外两条**没有降级为后备**：拒绝相机权限
+ * 的用户不该被卡住，而粘贴永远是最可靠的。
  *
  * ### 为什么粘贴是一等公民而非后备
  *
- * QR 是便利而非协议。在锁定的工手机上、或截图解码器读不出的用户，仍须能配对。
- * 文字栏因此是主控件，扫码是快捷方式——这也是为什么扫码的失败信息明确说
- * 「请改用手动粘贴」。
+ * QR 是便利而非协议。在锁定的工手机上、或相机进灰读不出码的用户，仍须能配对。
+ * 文字栏因此是主控件，两条扫码路径都是快捷方式——这也是为什么扫码失败的信息明确
+ * 说「请改用手动粘贴」。
  *
  * ### 本界面刻意不做的事
  *
@@ -88,6 +93,9 @@ fun PairScreen(
     // keeping them local means the ViewModel has no idea the picker exists.
     var link by remember { mutableStateOf("") }
     var scanError by remember { mutableStateOf<String?>(null) }
+    // Whether the live-camera dialog is up. Local like the other two: on a
+    // rotation the dialog should close rather than silently re-open a lens.
+    var scanning by remember { mutableStateOf(false) }
 
     // `Connecting` is the only busy state that matters here: it is set by the
     // ViewModel the moment a pair attempt starts and cleared on success/failure.
@@ -114,6 +122,21 @@ fun PairScreen(
             link = decoded
             onPair(decoded)
         }
+    }
+
+    // The live-camera dialog. Rendered as a sibling of the page rather than inline
+    // because it is a full-screen takeover: it has its own background, its own
+    // permission state, and must cover the paste form while the lens is open.
+    if (scanning) {
+        CameraScannerDialog(
+            onResult = { value ->
+                // Same contract as the photo picker: show the user what was read
+                // *and* submit it, so a wrong QR can be seen and corrected.
+                link = value
+                onPair(value)
+            },
+            onDismiss = { scanning = false },
+        )
     }
 
     Column(
@@ -214,6 +237,22 @@ fun PairScreen(
             Icon(Icons.Default.QrCodeScanner, contentDescription = null)
             Spacer(Modifier.size(8.dp))
             Text("从相册选择二维码图片")
+        }
+
+        // The primary scan path: point the camera at the QR on the computer
+        // screen. Offered as a filled-outline button (not the brand-filled one)
+        // because the *connection* action above is what actually pairs; this only
+        // fills in the field. Ordering it after the paste box keeps the manual
+        // path discoverable as a peer, not a fallback.
+        OutlinedButton(
+            onClick = { scanError = null; scanning = true },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !busy,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        ) {
+            Icon(Icons.Default.PhotoCamera, contentDescription = null)
+            Spacer(Modifier.size(8.dp))
+            Text("打开摄像头扫码")
         }
 
         // One error line, two possible sources. A local scan failure is more

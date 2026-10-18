@@ -105,11 +105,30 @@ provider "…" model "…" does not support reasoning effort "high"
 
 ### `conformance.mjs` 有两项失败，其他都过
 
-那两项是「收到 assistant 消息」和「这一轮没有在电脑端失败」。它们同时失败、且错误码为
-`UNSUPPORTED_REASONING_EFFORT` 时，就是上面那个原因——改电脑配置后重跑即可。
+那两项是「收到 assistant 消息」和「这一轮没有在电脑端失败」。它们同时失败时，说明
+**电脑自己拒了这一轮**，而工具链是好的。失败信息里会带上电脑返回的具体原因，按码去查：
 
-这两项是**故意**加进去的：它们把「契约坏了」和「电脑自己拒了这一轮」区分开，因为两者
+| 错误码 | 含义 | 修法 |
+| --- | --- | --- |
+| `UNSUPPORTED_REASONING_EFFORT` | 电脑配置要求的推理强度，该模型不支持 | 见上一节，改 `agent-default-model` 的 `reasoningEffort` |
+| `MISSING_CREDENTIAL` | 该 provider 没有 API key | 在电脑上给对应线路存密钥（如 `DEEPSEEK_API_KEY`） |
+| `CONTEXT_WINDOW_EXCEEDED` / `preflight_compress_failed` | 电脑自己估算的上下文超过该模型窗口 | 换默认模型，或调大/关闭那一路的预检压缩 |
+| `SERVER`（`upstream stream ended before a completion event`） | 上游线路中途断流 | 换线路 |
+
+这几项是**故意**分开报的：它们把「契约坏了」和「电脑自己拒了这一轮」区分开，因为两者
 表现完全相同（都没有 assistant 消息），但修法相反。
+
+### 默认模型坏了，但我想验证手机端没问题
+
+`conformance.mjs` 支持第三个参数，把那一轮固定到你指定的模型上：
+
+```bash
+node tests/conformance.mjs http://127.0.0.1:19387 <deviceId> buddy/deepseek-v4.1-flash
+```
+
+它只在测试自己新建的那个一次性会话上生效，不会动你自己的会话。有了这个参数，即使电脑的
+**默认**模型是坏的，22 项也能全绿——这正好证明「手机端 + 协议」是好的，坏的是模型线路。
+不传这个参数时，那一轮就用电脑的默认模型，失败原因如上表。
 
 ## 审批
 

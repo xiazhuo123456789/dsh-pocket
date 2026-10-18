@@ -1,11 +1,13 @@
 package dev.dshpocket.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,6 +33,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -54,7 +58,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -127,6 +133,31 @@ fun ChatScreen(
     var pickModel by remember { mutableStateOf(false) }
     var pickPermission by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    // 进入会话时**直接停在最新一条**上，而不是停在顶部。
+    //
+    // 这是用户报的「点进会话要一直往下滑才能到最新」的原因：LazyColumn 默认从
+    // index 0（最旧的一条）开始，而会话历史往往几十条，于是打开一个正在跑的会话
+    // 看到的是几天前的开场白，最新进展在屏幕外好几屏的地方。
+    //
+    // 不能靠下面的"跟随末尾"逻辑来做这件事 —— 那个逻辑要求 `nearBottom` 为真，
+    // 而刚进入时列表还没布局，`totalItemsCount` 是 0，判断结果为假，于是永远不滚。
+    // 所以这里是一个**一次性的初始跳转**，跟"是否在底部"无关。
+    //
+    // key 用 `sessionId`：换会话要重新跳（新会话的历史完全不同），同一个会话里
+    // 后续的增量则交给下面的跟随逻辑。
+    var didInitialJump by remember(state.sessionId) { mutableStateOf(false) }
+    LaunchedEffect(state.sessionId, state.items.size, state.streamingText.length) {
+        if (didInitialJump) return@LaunchedEffect
+        val total = state.items.size + if (state.streamingText.isNotEmpty()) 1 else 0
+        if (total <= 0) return@LaunchedEffect
+        // 两段式：第一次 `scrollToItem` 发生在列表刚被组合、还没测量的时候，长历史
+        // 下可能落在中间；下一帧再校正一次，代价是一次瞬间滚动，用户看不到过程。
+        listState.scrollToItem(total - 1)
+        withFrameNanos { }
+        listState.scrollToItem(total - 1)
+        didInitialJump = true
+    }
 
     // 跟随末尾，但只在用户本来就在底部时才跟。
     //
@@ -535,41 +566,149 @@ private fun AssistantBlock(item: ChatItem) {
 }
 
 /**
- * 工具调用：左侧一条竖线 + 小号次级文字。
+ * A tool run, rendered as one compact block.
  *
- * 不用气泡也不用卡片：工具输出是"电脑做了什么"的旁注，读的时候应该能一眼扫过、
- * 需要时才细看。竖线给了它一个左边界，说明它属于上面那次调用，但不会像卡片那样
- * 把版面切碎。
+ * ### What was wrong before
+ *
+ * The previous version emitted two independent grey boxes per tool run: a
+ * `工具 · edit` chip from `tool/call`, then a separate `工具 · 调用` box from
+ * `tool/result` holding raw output. Nothing tied them together, the whole
+ * argument was invisible, and a turn with four tools produced eight
+ * indistinguishable grey blobs. On a phone that reads as noise — the user's word
+ * was 乱七八糟.
+ *
+ * ### The shape now
+ *
+ * One block per run, three tiers of information:
+ *
+ *  1. a **header row** — icon, tool name, and a spinner while the call is still
+ *     executing, so "running" and "done" are distinguishable at a glance;
+ *  2. a **detail line** — the argument summary (the command, the file path). This
+ *     is the line that answers "它到底动了什么"; without it the transcript said a
+ *     tool ran but never on what;
+ *  3. the **output**, monospaced, collapsed to 6 lines with a "展开 N 行" toggle.
+ *
+ * Collapsing matters more than it looks: a shell command can return hundreds of
+ * lines, and expanding the whole thing by default would push every subsequent
+ * answer off the screen. The toggle keeps the transcript scannable while leaving
+ * the full text one tap away.
+ *
+ * No bubble and no card. Tool output is an aside about what the computer did; a
+ * card would cut the page into more pieces and compete with the answer, which is
+ * the actual content.
  */
 @Composable
 private fun ToolBlock(item: ChatItem) {
-    Row(Modifier.fillMaxWidth()) {
+    // Collapsed by default. Keyed on the item key so a re-baselined snapshot
+    // resets the state instead of leaving a stale expand on a different run.
+    var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
+    val output = item.text.trim()
+    val lines = remember(output) { if (output.isEmpty()) emptyList() else output.lines() }
+    // 6 lines is roughly one screen-inch of monospace: enough to recognise the
+    // shape of the output, not enough to bury the next message.
+    val collapsedLines = 6
+    val shown = when {
+        expanded || lines.size <= collapsedLines -> output
+        else -> lines.take(collapsedLines).joinToString("\n") + "\n…"
+    }
+
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
         Box(
             Modifier
                 .width(2.dp)
-                .heightIn(min = 20.dp)
+                .heightIn(min = 24.dp)
+                .fillMaxHeight()
                 .background(
-                    MaterialTheme.colorScheme.outlineVariant,
+                    if (item.isError) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.outlineVariant,
                     RoundedCornerShape(1.dp),
                 )
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(
-                text = item.toolName ?: "工具",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (item.text.isNotBlank()) {
+            // --- header: icon + name + status ---
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (item.isError) Icons.Default.ErrorOutline
+                    else Icons.Default.Build,
+                    contentDescription = null,
+                    modifier = Modifier.size(13.dp),
+                    tint = if (item.isError) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = item.toolName ?: "工具",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (item.isError) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (item.toolRunning) {
+                    Spacer(Modifier.width(6.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(10.dp),
+                        strokeWidth = 1.5.dp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            // --- detail: what it operated on ---
+            item.detail?.let { detail ->
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = item.text,
-                    style = MaterialTheme.typography.bodyMedium.copy(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall.copy(
                         fontFamily = FontFamily.Monospace,
-                        lineHeight = 18.sp,
                     ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
+            }
+
+            // --- output ---
+            if (item.toolRunning && output.isEmpty()) {
+                // Nothing to show yet; the spinner in the header says why.
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "执行中…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                )
+            } else if (output.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    // One step below the page so the block reads as an inset,
+                    // not as a competing card.
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = shown,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = 17.sp,
+                        ),
+                        color = if (item.isError) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (lines.size > collapsedLines) {
+                    Text(
+                        text = if (expanded) "收起" else "展开 ${lines.size} 行",
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { expanded = !expanded }
+                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
     }
