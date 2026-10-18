@@ -440,6 +440,61 @@ class PocketViewModel(
      * a token the desktop refused (with its own error code), and a transport error.
      * Collapsing them would leave the user guessing whether to retry or re-scan.
      */
+    /**
+     * Point the app at a different address for the *same* desktop, keeping the
+     * device credential.
+     *
+     * ### Why this exists
+     *
+     * The desktop publishes a `trycloudflare` quick tunnel whose hostname is
+     * generated at startup. Restart the desktop and the stored URL starts
+     * answering "connection refused" while this phone's device grant is still
+     * valid on that machine. Without this, the only way out was "断开并清除凭据"
+     * followed by a full re-pair — throwing away a working credential because a
+     * hostname moved.
+     *
+     * ### What is deliberately not changed
+     *
+     * `deviceId` and `pairedAt` are preserved: the desktop authorises the device,
+     * not the address, so moving the address must not look like a new device.
+     */
+    fun changeAddress(rawUrl: String) {
+        val trimmed = rawUrl.trim().trimEnd('/')
+        if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+            _state.update {
+                it.copy(
+                    connection = it.connection.copy(
+                        phase = Phase.Error,
+                        error = "地址要以 http:// 或 https:// 开头",
+                    )
+                )
+            }
+            return
+        }
+        val current = credentials.load()
+        if (current == null) {
+            _state.update {
+                it.copy(
+                    connection = it.connection.copy(
+                        phase = Phase.Error,
+                        error = "本机没有配对凭据，请先重新配对",
+                    )
+                )
+            }
+            return
+        }
+        if (current.baseUrl == trimmed) {
+            // Same address: treat it as "retry", not as a change that needs a
+            // rewrite of the credential file.
+            connect(current)
+            return
+        }
+        val updated = current.copy(baseUrl = trimmed, label = trimmed)
+        credentials.save(updated)
+        _state.update { it.copy(paired = updated) }
+        connect(updated)
+    }
+
     fun pairWithInvite(rawLink: String) {
         val invite = pairing.parseInvite(rawLink)
         if (invite == null) {

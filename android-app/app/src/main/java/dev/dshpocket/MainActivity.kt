@@ -242,6 +242,7 @@ private fun PocketRoot(state: UiState) {
                 showSettings = false
                 app().viewModel.unpair()
             },
+            onChangeAddress = { app().viewModel.changeAddress(it) },
         )
         return
     }

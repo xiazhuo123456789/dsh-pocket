@@ -18,6 +18,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -76,12 +77,21 @@ fun SettingsScreen(
     onSimplifiedChinese: (Boolean) -> Unit,
     onReconnect: () -> Unit,
     onUnpair: () -> Unit,
+    onChangeAddress: (String) -> Unit,
 ) {
     // Local dialog visibility only. The confirmation is deliberately not a
     // ViewModel concern: it is a transient UI step, and if the screen is recreated
     // the dialog closing is the safe default (the destructive action must be asked
     // again, never resumed).
     var confirmUnpair by remember { mutableStateOf(false) }
+
+    // Editing the address is the recovery path for the most common failure: the
+    // desktop publishes a `trycloudflare` quick tunnel whose hostname changes
+    // every time the desktop restarts, so the stored URL starts returning "connection
+    // refused" even though this phone is still an accepted device. Re-pairing would
+    // throw away a perfectly good device credential, so the address is editable
+    // on its own.
+    var editingAddress by remember { mutableStateOf(false) }
 
     if (confirmUnpair) {
         AlertDialog(
@@ -105,6 +115,42 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmUnpair = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (editingAddress) {
+        var draft by remember(paired?.baseUrl) { mutableStateOf(paired?.baseUrl.orEmpty()) }
+        AlertDialog(
+            onDismissRequest = { editingAddress = false },
+            title = { Text("修改电脑地址") },
+            text = {
+                Column {
+                    Text(
+                        "电脑上那个 `trycloudflare` 地址每次重启电脑都会换一个，换掉之后旧的地址就再也连不上，" +
+                            "但这台手机在电脑上的授权还在。把新地址填进来就不用重新配对。",
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        singleLine = true,
+                        label = { Text("https://…trycloudflare.com") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        editingAddress = false
+                        onChangeAddress(draft)
+                    },
+                    enabled = draft.isNotBlank(),
+                ) { Text("连接") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingAddress = false }) { Text("取消") }
             },
         )
     }
@@ -172,6 +218,12 @@ fun SettingsScreen(
                 // Retry without re-pairing: the credential is usually still valid
                 // and the failure is usually that the desktop was asleep.
                 TextButton(onClick = onReconnect, enabled = paired != null) { Text("重新连接") }
+                // Kept separate from "重新连接" because they answer different
+                // questions: reconnect retries the *same* address, this one changes
+                // where the app points while keeping the device credential.
+                TextButton(onClick = { editingAddress = true }, enabled = paired != null) {
+                    Text("修改地址")
+                }
                 TextButton(onClick = { confirmUnpair = true }, enabled = paired != null) {
                     Text("断开并清除凭据", color = PocketColors.bad)
                 }

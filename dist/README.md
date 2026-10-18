@@ -1,16 +1,16 @@
 # 构建产物 / Build artifacts
 
-## v0.7.0
+## v0.8.0
 
 | 文件 / File | 大小 / Size | SHA-256 |
 | --- | --- | --- |
-| `dsh-pocket-0.7.0.apk` | 11.63 MiB (12,200,227 B) | `1ce24c8f0f006f8cda3bb0bfc80a901f2fe0330d204a904f19698c1b9f91f48d` |
-| `dsh-pocket-0.7.0-debug.apk` | 30.65 MiB (32,143,849 B) | `57c74f1bad8fa7497e513430924fec77b94faa0fdd2546c41c1fd5fcdadb9342` |
+| `dsh-pocket-0.8.0.apk` | 11.64 MiB (12,200,227 B) | `2b2efa83005c73a80005b0e4ba5379fcfa7f0408d044e3c8152470272173c6b7` |
+| `dsh-pocket-0.8.0-debug.apk` | 30.85 MiB (32,345,376 B) | `da885950a42f308b23ac280582da18694722f3a417da72a935e990ca36d47dab` |
 
-`dsh-pocket-0.7.0.apk` 是体积优化后的发布包（R8 代码压缩 + 资源收缩），日常安装用这个。
-`dsh-pocket-0.7.0-debug.apk` 保留完整符号信息，只在排障或抓堆栈时用。
+`dsh-pocket-0.8.0.apk` 是体积优化后的发布包（R8 代码压缩 + 资源收缩），日常安装用这个。
+`dsh-pocket-0.8.0-debug.apk` 保留完整符号信息，只在排障或抓堆栈时用。
 
-The `0.7.0` APK is the shrinker-built release; use it for normal installation. The
+The `0.8.0` APK is the shrinker-built release; use it for normal installation. The
 `-debug` APK keeps full symbols and exists for troubleshooting only.
 
 两者使用**相同**的调试密钥签名，可以互相覆盖安装，不需要先卸载。
@@ -20,10 +20,10 @@ uninstalling first.
 校验下载完整性和签名身份 / verify a download:
 
 ```bash
-sha256sum dsh-pocket-0.7.0.apk
+sha256sum dsh-pocket-0.8.0.apk
 # → aab94290febd6f92e28fd9768b8d7c98cde375cbfb02d9965fb6f5a43d76d02c
 
-apksigner verify --print-certs dsh-pocket-0.7.0.apk
+apksigner verify --print-certs dsh-pocket-0.8.0.apk
 # → signer #1 certificate SHA-256 digest: ee49dd744f1092f51f31c6e29cbdb90565294f7f5b6c153317d7bdaea029dfaa
 ```
 
@@ -43,7 +43,7 @@ apksigner verify --print-certs dsh-pocket-0.7.0.apk
 ## 安装 / Install
 
 ```bash
-adb install -r dsh-pocket-0.7.0.apk
+adb install -r dsh-pocket-0.8.0.apk
 ```
 
 或者把 APK 传到手机上点击安装（需要在系统设置里允许「安装未知来源应用」）。
@@ -54,7 +54,7 @@ from an unknown source).
 The first launch lands on the pairing screen. The phone and the desktop need to share a
 network, or the desktop needs to expose a public tunnel.
 
-装好后到「设置 → 关于 → 版本」核对 `0.7.0 (8)`。如果显示 `0.6.0 (7)` 或更早，说明装的是旧包。
+装好后到「设置 → 关于 → 版本」核对 `0.8.0 (9)`。如果显示 `0.7.0 (8)` 或更早，说明装的是旧包。
 
 ---
 
@@ -66,6 +66,7 @@ Older APKs are not uploaded; only hashes are recorded. Rebuild them per
 
 | 版本 | 发布包大小 | SHA-256 |
 | --- | --- | --- |
+| 0.7.0 | 12,200,227 B | `1ce24c8f0f006f8cda3bb0bfc80a901f2fe0330d204a904f19698c1b9f91f48d` |
 | 0.6.0 | 12,200,227 B | `aab94290febd6f92e28fd9768b8d7c98cde375cbfb02d9965fb6f5a43d76d02c` |
 | 0.5.0 | 12,200,227 B | `877175f507d1fd58a1d6eccd9dbf3089fb91c71dbbaa72476f4c26ed6bfc0073` |
 | 0.4.1 | 12,200,227 B | `6482e113368b67c19c442ab954d522ea315a71596b36ad1b9996928b769c71c9` |
