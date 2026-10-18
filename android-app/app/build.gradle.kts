@@ -22,8 +22,12 @@ android {
         // 0.4.1 是 0.4.0 的补丁：0.4.0 里相机绑定失败被一句光秃秃的
         // `runCatching {}` 吞掉，没摄像头的设备（manifest 允许安装）只会看到
         // 一片黑，什么都不会再发生。修法是把三类失败分开讲清楚并给退路。
-        versionCode = 5
-        versionName = "0.4.1"
+        //
+        // 0.5.0 重做了对话区：助手回答放进浅底卡片（不再是裸文字压在背景上），
+        // 工具调用默认折叠（用户原话："那些过程不需要给我看"），打开会话时用重试
+        // 循环而非两次 scrollToItem 确保停在最底部（旧版长历史会停在中间）。
+        versionCode = 6
+        versionName = "0.5.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

@@ -146,16 +146,28 @@ fun ChatScreen(
     //
     // key 用 `sessionId`：换会话要重新跳（新会话的历史完全不同），同一个会话里
     // 后续的增量则交给下面的跟随逻辑。
+    //
+    // **为什么是重试循环而不是一次 scrollToItem**：旧版只跳两次（`scrollToItem`
+    // 后等一帧再 `scrollToItem`），在长历史上仍然停在中间。原因是 LazyColumn 的
+    // 首次布局只测量可见区附近的项目，一次 scrollToItem 到一个几百项之外的位置，
+    // 在布局完成前只是个"意图"，实际落点会差很多帧。这里改成：只要还没到最后一
+    // 条就一直重试，每帧一次，最多 30 帧（半秒），直到真正落到底部。半秒后放弃
+    // 是为了不让一个异常会话把 CPU 拖死；此时下面的跟随逻辑已经能接手。
     var didInitialJump by remember(state.sessionId) { mutableStateOf(false) }
     LaunchedEffect(state.sessionId, state.items.size, state.streamingText.length) {
         if (didInitialJump) return@LaunchedEffect
         val total = state.items.size + if (state.streamingText.isNotEmpty()) 1 else 0
         if (total <= 0) return@LaunchedEffect
-        // 两段式：第一次 `scrollToItem` 发生在列表刚被组合、还没测量的时候，长历史
-        // 下可能落在中间；下一帧再校正一次，代价是一次瞬间滚动，用户看不到过程。
-        listState.scrollToItem(total - 1)
-        withFrameNanos { }
-        listState.scrollToItem(total - 1)
+        repeat(30) {
+            val last = listState.layoutInfo.totalItemsCount - 1
+            if (last < 0) { withFrameNanos { }; return@repeat }
+            listState.scrollToItem(last)
+            withFrameNanos { }
+            // 已经到最后一项了，布局也稳定了（最后一项的 offset 不再变化）。
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            if (lastVisible >= last) { didInitialJump = true; return@LaunchedEffect }
+        }
         didInitialJump = true
     }
 
@@ -541,10 +553,10 @@ private fun UserBubble(item: ChatItem) {
 }
 
 /**
- * 助手回答：无气泡，全宽，Markdown 渲染。
+ * 助手回答：浅底卡片 + 全宽 Markdown 渲染。
  *
- * 没有任何背景色是刻意的 —— 回答是这屏的主内容，给它底色只会让文字与屏幕之间
- * 多隔一层，长文时尤其压抑。
+ * 没有边框只有底色，底色比页面亮一阶（surfaceContainerLow），让回答"浮起来"
+ * 但不像用户气泡那样占一块。长回答时整屏是一叠卡片，不是一叠色块。
  */
 @Composable
 private fun AssistantBlock(item: ChatItem) {
@@ -552,71 +564,60 @@ private fun AssistantBlock(item: ChatItem) {
         ErrorBubble(item)
         return
     }
-    Column(Modifier.fillMaxWidth()) {
-        MarkdownText(
-            text = item.text,
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        if (item.streaming) {
-            Spacer(Modifier.height(6.dp))
-            StreamingDots()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        // 比页面底色亮一阶：读作"这是 AI 的回答"，但不是"对话气泡"。
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            MarkdownText(
+                text = item.text,
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (item.streaming) {
+                Spacer(Modifier.height(6.dp))
+                StreamingDots()
+            }
         }
     }
 }
 
 /**
- * A tool run, rendered as one compact block.
+ * A tool run, rendered as one compact, **collapsed-by-default** block.
  *
- * ### What was wrong before
+ * 用户说"那些过程不需要给我看就编译的过程把隐藏起来"。工具调用的过程就是
+ * 那些"过程" —— edit 改了哪个文件、pwsh 跑了什么命令、返回了什么，这些对排查
+ * 有用，但不是对话的主线。默认只显示一行头（工具名 + 摘要），点击才展开全部
+ * 输出。
  *
- * The previous version emitted two independent grey boxes per tool run: a
- * `工具 · edit` chip from `tool/call`, then a separate `工具 · 调用` box from
- * `tool/result` holding raw output. Nothing tied them together, the whole
- * argument was invisible, and a turn with four tools produced eight
- * indistinguishable grey blobs. On a phone that reads as noise — the user's word
- * was 乱七八糟.
+ * ### 三层信息
  *
- * ### The shape now
+ *  1. **头行** — 图标 + 工具名 + 运行中的转圈。运行中与完成态一眼可分。
+ *  2. **摘要** — 被操作的文件路径或命令。这一行回答"它到底动了什么"。
+ *  3. **输出** — 等宽字体，默认折叠，点"展开"才显示。
  *
- * One block per run, three tiers of information:
- *
- *  1. a **header row** — icon, tool name, and a spinner while the call is still
- *     executing, so "running" and "done" are distinguishable at a glance;
- *  2. a **detail line** — the argument summary (the command, the file path). This
- *     is the line that answers "它到底动了什么"; without it the transcript said a
- *     tool ran but never on what;
- *  3. the **output**, monospaced, collapsed to 6 lines with a "展开 N 行" toggle.
- *
- * Collapsing matters more than it looks: a shell command can return hundreds of
- * lines, and expanding the whole thing by default would push every subsequent
- * answer off the screen. The toggle keeps the transcript scannable while leaving
- * the full text one tap away.
- *
- * No bubble and no card. Tool output is an aside about what the computer did; a
- * card would cut the page into more pieces and compete with the answer, which is
- * the actual content.
+ * 没有气泡也没有卡片。工具输出是电脑做了什么的旁注；一张卡片会多切一块页面
+ * 并与回答抢注意力，而回答才是真正的内容。
  */
 @Composable
 private fun ToolBlock(item: ChatItem) {
-    // Collapsed by default. Keyed on the item key so a re-baselined snapshot
-    // resets the state instead of leaving a stale expand on a different run.
     var expanded by rememberSaveable(item.key) { mutableStateOf(false) }
     val output = item.text.trim()
-    val lines = remember(output) { if (output.isEmpty()) emptyList() else output.lines() }
-    // 6 lines is roughly one screen-inch of monospace: enough to recognise the
-    // shape of the output, not enough to bury the next message.
-    val collapsedLines = 6
-    val shown = when {
-        expanded || lines.size <= collapsedLines -> output
-        else -> lines.take(collapsedLines).joinToString("\n") + "\n…"
-    }
 
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { if (output.isNotEmpty()) expanded = !expanded }
+            .padding(horizontal = 2.dp, vertical = 2.dp),
+    ) {
         Box(
             Modifier
                 .width(2.dp)
-                .heightIn(min = 24.dp)
+                .heightIn(min = 20.dp)
                 .fillMaxHeight()
                 .background(
                     if (item.isError) MaterialTheme.colorScheme.error
@@ -626,7 +627,7 @@ private fun ToolBlock(item: ChatItem) {
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            // --- header: icon + name + status ---
+            // --- 头行: 图标 + 工具名 + 状态 ---
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = if (item.isError) Icons.Default.ErrorOutline
@@ -651,10 +652,17 @@ private fun ToolBlock(item: ChatItem) {
                         strokeWidth = 1.5.dp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                } else if (output.isNotEmpty()) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (expanded) "收起" else "展开",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
 
-            // --- detail: what it operated on ---
+            // --- 摘要: 操作了什么 ---
             item.detail?.let { detail ->
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -668,26 +676,26 @@ private fun ToolBlock(item: ChatItem) {
                 )
             }
 
-            // --- output ---
+            // --- 运行中且无输出 ---
             if (item.toolRunning && output.isEmpty()) {
-                // Nothing to show yet; the spinner in the header says why.
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = "执行中…",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 )
-            } else if (output.isNotEmpty()) {
-                Spacer(Modifier.height(4.dp))
+            }
+
+            // --- 展开后的输出 ---
+            if (expanded && output.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    // One step below the page so the block reads as an inset,
-                    // not as a competing card.
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        text = shown,
+                        text = output,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.bodySmall.copy(
                             fontFamily = FontFamily.Monospace,
@@ -695,18 +703,6 @@ private fun ToolBlock(item: ChatItem) {
                         ),
                         color = if (item.isError) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (lines.size > collapsedLines) {
-                    Text(
-                        text = if (expanded) "收起" else "展开 ${lines.size} 行",
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .clickable { expanded = !expanded }
-                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
