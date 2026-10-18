@@ -135,6 +135,36 @@ class PocketViewModel(
     private var nextLocalSeq: Long = 0L
 
     /**
+     * 上次渲染过的转写，用来「点进去立刻有内容」。
+     *
+     * ### 为什么需要（用户报「每次加载出来加载的很慢」）
+     *
+     * 打开会话时必须等电脑把整段历史通过 `session/follow` 的快照送回来，才第一次
+     * 有东西可画。一个几十条记录的会话加上隧道往返，这段时间屏幕上是空白的「正在
+     * 读取电脑上的记录…」。用户体感就是「每次都要等」。
+     *
+     * 这里保留上一次的渲染结果，重进同一个会话时先把它画出来，快照到达后再整体
+     * 替换。**这不是缓存真相**：电脑回来的快照永远优先，本地副本只在「还没有更好
+     * 的信息」时顶一下。
+     *
+     * ### 为什么必须有上限
+     *
+     * 每条记录都含正文，一个长会话几 MB。手机内存有限，且这是纯锦上添花的优化，
+     * 不值得为它冒 OOM 的风险，所以只留最近几个会话（[TRANSCRIPT_CACHE_SIZE]），
+     * 超出按访问顺序淘汰。
+     */
+    private val transcriptCache = object : LinkedHashMap<String, List<ChatItem>>(
+        TRANSCRIPT_CACHE_SIZE, 0.75f, true,
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<ChatItem>>?): Boolean =
+            size > TRANSCRIPT_CACHE_SIZE
+    }
+
+    private fun rememberTranscript(sessionId: String, items: List<ChatItem>) {
+        transcriptCache[sessionId] = items
+    }
+
+    /**
      * 退避重连的调度任务与轮次。
      *
      * ### 为什么需要它（上一版最严重的缺陷）
@@ -576,6 +606,7 @@ class PocketViewModel(
         }
         // Both fields move together: `openSessionId` drives navigation (what the
         // user sees), `chat.sessionId` drives data (whose history is loaded).
+        val cached = transcriptCache[sessionId]
         _state.update { st ->
             st.copy(
                 openSessionId = sessionId,
@@ -589,6 +620,10 @@ class PocketViewModel(
                         sessionId = sessionId,
                         loadingHistory = st.chat.items.isEmpty() && st.chat.streamingText.isEmpty(),
                     )
+                } else if (cached != null) {
+                    // 上次的渲染结果先顶上，快照到达后整体替换。用户看到的是"立刻
+                    // 有内容"，而不是几秒空白 —— 这是「加载很慢」的直接解法。
+                    ChatState(sessionId = sessionId, items = cached, loadingHistory = false)
                 } else {
                     ChatState(sessionId = sessionId, loadingHistory = true)
                 },
@@ -649,6 +684,10 @@ class PocketViewModel(
                 // Pair each tool result into its call so the backlog shows one
                 // row per tool run, matching what the live path produces.
                 val items = pairToolEntries(frame.records.mapNotNull { toChatItem(it) })
+                // 快照是权威版本，顺手刷新本地副本，下次点进来能立刻显示。
+                (frame.sessionId ?: _state.value.chat.sessionId)?.let { sid ->
+                    if (items.isNotEmpty()) rememberTranscript(sid, items)
+                }
                 _state.update { st ->
                     st.copy(
                         chat = st.chat.copy(
@@ -1606,6 +1645,14 @@ class PocketViewModel(
      * the visible symptom being a screen that will not let you leave.
      */
     fun closeSession() {
+        // 关掉之前把已渲染的转写留一份，下次点进来可以立刻显示。见
+        // `transcriptCache` 的注释：这不是缓存「真相」，只是避免每次都先看几秒
+        // 空白 —— 电脑回来的快照仍然会整体替换它。
+        _state.value.chat.sessionId?.let { id ->
+            if (_state.value.chat.items.isNotEmpty()) {
+                rememberTranscript(id, _state.value.chat.items)
+            }
+        }
         chatJob?.cancel()
         chatJob = null
         followHandle?.cancel()
@@ -1662,3 +1709,11 @@ class PocketViewModel(
         if (_state.value.sessions.any { it.id == lastSessionId }) openSession(lastSessionId)
     }
 }
+
+/**
+ * 最多保留几个会话的已渲染转写。
+ *
+ * 6 个是个经验值：少于 3 个时「列表里来回点」几乎必然打不中缓存，多于 10 个则会
+ * 让几个长会话的正文同时驻留，在 4 GB 手机上明显挤占内存。
+ */
+private const val TRANSCRIPT_CACHE_SIZE = 6

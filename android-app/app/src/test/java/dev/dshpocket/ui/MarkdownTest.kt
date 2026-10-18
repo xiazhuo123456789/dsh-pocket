@@ -90,4 +90,62 @@ class MarkdownTest {
         val annotated = inline("这里有个 ** 星号", androidx.compose.ui.graphics.Color.Black)
         assertEquals("这里有个 ** 星号", annotated.text)
     }
+
+    @Test
+    fun `table is parsed into header and rows`() {
+        // 这段是用户截图里那坨「|AI 回答|浅底卡片|」的原文形态 —— 之前整张表
+        // 被当成普通段落直接印出来，屏幕上就是一堆竖线。
+        val text = """
+            | 元素 | 渲染 |
+            | --- | --- |
+            | AI 回答 | 浅底卡片 |
+            | 工具调用 | 折叠块 |
+        """.trimIndent()
+
+        val blocks = parseMarkdown(text)
+        assertEquals(1, blocks.size)
+        val table = blocks[0] as MdBlock.Table
+        assertEquals(listOf("元素", "渲染"), table.header)
+        assertEquals(2, table.rows.size)
+        assertEquals(listOf("AI 回答", "浅底卡片"), table.rows[0])
+        assertEquals(listOf("工具调用", "折叠块"), table.rows[1])
+    }
+
+    @Test
+    fun `pipes without a separator line stay a paragraph`() {
+        // 判据是「有竖线**且下一行是分隔行**」。仅凭竖线就切成表格，会把
+        // 正文里带 `|` 的普通句子（例如 shell 管道 `a | b`）误判成表格。
+        val blocks = parseMarkdown("用 ps aux | grep node 查进程")
+        assertEquals(1, blocks.size)
+        assertTrue(blocks[0] is MdBlock.Paragraph)
+    }
+
+    @Test
+    fun `ragged table rows are padded to header width`() {
+        // 模型偶尔少写一列。缺列会让界面的列对齐错位，补空串比让整张表歪掉好。
+        val text = """
+            | A | B |
+            | --- | --- |
+            | 只有一格 |
+        """.trimIndent()
+
+        val table = parseMarkdown(text)[0] as MdBlock.Table
+        assertEquals(listOf("只有一格", ""), table.rows[0])
+    }
+
+    @Test
+    fun `table inside a fence stays code`() {
+        // 围栏里的竖线是代码（例如 Markdown 源码示例），不能变成表格。
+        val text = "```\n| A | B |\n| --- | --- |\n```"
+        val blocks = parseMarkdown(text)
+        assertEquals(1, blocks.size)
+        assertTrue(blocks[0] is MdBlock.Code)
+    }
+
+    @Test
+    fun `horizontal rule becomes a divider`() {
+        val blocks = parseMarkdown("上一段\n\n---\n\n下一段")
+        assertEquals(3, blocks.size)
+        assertEquals(MdBlock.Divider, blocks[1])
+    }
 }

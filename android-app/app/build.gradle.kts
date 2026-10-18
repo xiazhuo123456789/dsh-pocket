@@ -26,8 +26,15 @@ android {
         // 0.5.0 重做了对话区：助手回答放进浅底卡片（不再是裸文字压在背景上），
         // 工具调用默认折叠（用户原话："那些过程不需要给我看"），打开会话时用重试
         // 循环而非两次 scrollToItem 确保停在最底部（旧版长历史会停在中间）。
-        versionCode = 6
-        versionName = "0.5.0"
+        //
+        // 0.6.0：
+        //   * 列表改 `reverseLayout = true` —— 「打开就停在最新一条」从运行时追赶
+        //     变成布局性质，长历史也不会停在中间（前两版的重试循环仍会失败）。
+        //   * 补 Markdown 表格与分隔线渲染。0.5.0 把表格当普通段落打印，屏幕上
+        //     就是一串竖线，这是用户说「乱七八糟」的直接来源。
+        //   * 打开会话先显示上次的渲染结果，不再每次空白几秒。
+        versionCode = 7
+        versionName = "0.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

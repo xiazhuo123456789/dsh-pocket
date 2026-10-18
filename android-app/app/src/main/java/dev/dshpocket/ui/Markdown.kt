@@ -10,9 +10,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -99,6 +102,11 @@ fun MarkdownText(
                     style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp),
                     color = color,
                 )
+                is MdBlock.Table -> TableBlock(block, color)
+                MdBlock.Divider -> HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
+                )
             }
         }
     }
@@ -146,17 +154,116 @@ private fun CodeBlock(
     }
 }
 
-/** Markdown 的块级元素。只保留实际用得上的四类。 */
+/**
+ * 表格：表头加底色，行间细线分隔，整表可横向滑动。
+ *
+ * ### 为什么横向滑动而不是自动换行
+ *
+ * 手机正文宽度只够三四十个汉字，而模型的表格常常是「项 / 状态 / 说明」三列。
+ * 让单元格换行会把每一行撑成三四行高，列与列的对齐就彻底失效 —— 那样即使加了
+ * 底色也读不出「这是表格」。保持单行 + 横向滑动，至少列是齐的。
+ *
+ * 单元格不设固定宽度：`Modifier.widthIn(min = …)` 只是给短内容兜底，长内容仍然
+ * 按内容撑开，避免「四个字的列占掉半屏、二十个字的列被挤成一条」。
+ */
+@Composable
+private fun TableBlock(
+    block: MdBlock.Table,
+    contentColor: androidx.compose.ui.graphics.Color,
+) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 2.dp),
+        ) {
+            Row(
+                Modifier
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+            ) {
+                block.header.forEach { cell ->
+                    TableCell(cell, contentColor, header = true)
+                }
+            }
+            block.rows.forEach { row ->
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                )
+                Row(Modifier.padding(horizontal = 4.dp)) {
+                    row.forEach { cell ->
+                        TableCell(cell, contentColor, header = false)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableCell(
+    text: String,
+    contentColor: androidx.compose.ui.graphics.Color,
+    header: Boolean,
+) {
+    Text(
+        text = inline(text, contentColor),
+        modifier = Modifier
+            .widthIn(min = 64.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
+        fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
+        color = if (header) contentColor else contentColor.copy(alpha = 0.86f),
+        softWrap = false,
+    )
+}
+
+/** Markdown 的块级元素。只保留实际用得上的几类。 */
 internal sealed interface MdBlock {
     data class Paragraph(val text: String) : MdBlock
     data class Heading(val level: Int, val text: String) : MdBlock
     data class Bullet(val text: String) : MdBlock
     data class Code(val code: String, val language: String?) : MdBlock
+
+    /**
+     * 表格。
+     *
+     * 必须支持，不能原样输出：模型很爱用表格做对比和小结，而手机的正文宽度只有
+     * 三四十个汉字。原样输出时屏幕上是一堆 `|` 和 `---`，用户看到的就是
+     * 「乱七八糟」—— 这不是排版风格问题，是**表格没被渲染**。
+     */
+    data class Table(val header: List<String>, val rows: List<List<String>>) : MdBlock
+
+    /** 分隔线 `---`。原样输出会变成一行三个减号，被误读成项目符号。 */
+    data object Divider : MdBlock
 }
 
 private val FENCE = Regex("^\\s*```\\s*([A-Za-z0-9_+-]*)")
 private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
 private val BULLET = Regex("^\\s*[-*+]\\s+(.*)$")
+
+/** 表格行：`| a | b |` 或 `a | b`。两侧竖线可省略。 */
+private val TABLE_ROW = Regex("^\\s*\\|?(.*?)\\|?\\s*$")
+
+/** 表格分隔行：`|---|---|`、`|:--|--:|` 等。 */
+private val TABLE_SEPARATOR = Regex("^\\s*\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?\\s*$")
+
+/** 分隔线：三个以上减号/星号/下划线独占一行。 */
+private val DIVIDER = Regex("^\\s*([-*_])\\1{2,}\\s*$")
+
+/** 把一行表格切成单元格，去掉两侧的空格。 */
+private fun splitTableRow(line: String): List<String> =
+    TABLE_ROW.matchEntire(line)?.groupValues?.get(1)
+        .orEmpty()
+        .split('|')
+        .map { it.trim() }
+
+/** 这一行看起来像表格行吗（至少要有一个竖线，否则普通文本里的 `a | b` 会误判）。 */
+private fun looksLikeTableRow(line: String): Boolean = line.contains('|')
 
 /**
  * 把整段文本切成块。
@@ -178,7 +285,11 @@ internal fun parseMarkdown(text: String): List<MdBlock> {
         }
     }
 
-    for (line in text.replace("\r\n", "\n").split('\n')) {
+    val lines = text.replace("\r\n", "\n").split('\n')
+    var i = 0
+    while (i < lines.size) {
+        val line = lines[i]
+
         if (inCode) {
             // 闭合围栏：只认 ``` 开头且后面没有语言名的行。
             if (FENCE.matches(line) && FENCE.matchEntire(line)?.groupValues?.get(1).isNullOrBlank()) {
@@ -189,6 +300,7 @@ internal fun parseMarkdown(text: String): List<MdBlock> {
             } else {
                 code.append(line).append('\n')
             }
+            i++
             continue
         }
 
@@ -197,11 +309,45 @@ internal fun parseMarkdown(text: String): List<MdBlock> {
             flushParagraph()
             inCode = true
             language = fence.groupValues[1].ifBlank { null }
+            i++
             continue
         }
 
         if (line.isBlank()) {
             flushParagraph()
+            i++
+            continue
+        }
+
+        // 表格必须先于段落判断：表格行里也可能有 `#` 或 `- ` 开头的单元格，
+        // 但判据是「当前行有竖线且**下一行是分隔行**」，比标题/列表更具体。
+        if (looksLikeTableRow(line) && i + 1 < lines.size && TABLE_SEPARATOR.matches(lines[i + 1])) {
+            flushParagraph()
+            val header = splitTableRow(line)
+            val rows = mutableListOf<List<String>>()
+            i += 2 // 跳过表头与分隔行
+            while (i < lines.size) {
+                val row = lines[i]
+                if (row.isBlank() || !looksLikeTableRow(row) || FENCE.matches(row)) break
+                rows += splitTableRow(row)
+                i++
+            }
+            // 单元格数量补齐到表头宽度：模型偶尔少写一列，缺列会让界面的列对齐
+            // 逻辑错位，补空串比让整张表歪掉好。
+            out += MdBlock.Table(
+                header = header,
+                rows = rows.map { row ->
+                    if (row.size >= header.size) row.take(header.size)
+                    else row + List(header.size - row.size) { "" }
+                },
+            )
+            continue
+        }
+
+        if (DIVIDER.matches(line)) {
+            flushParagraph()
+            out += MdBlock.Divider
+            i++
             continue
         }
 
@@ -209,6 +355,7 @@ internal fun parseMarkdown(text: String): List<MdBlock> {
         if (heading != null) {
             flushParagraph()
             out += MdBlock.Heading(heading.groupValues[1].length, heading.groupValues[2].trim())
+            i++
             continue
         }
 
@@ -216,11 +363,13 @@ internal fun parseMarkdown(text: String): List<MdBlock> {
         if (bullet != null) {
             flushParagraph()
             out += MdBlock.Bullet(bullet.groupValues[1].trim())
+            i++
             continue
         }
 
         if (paragraph.isNotEmpty()) paragraph.append('\n')
         paragraph.append(line)
+        i++
     }
 
     // 流式输出时围栏常常还没闭合。把剩余内容当代码块收尾，而不是丢掉 ——

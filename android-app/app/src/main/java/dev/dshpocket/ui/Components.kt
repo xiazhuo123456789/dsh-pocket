@@ -115,26 +115,36 @@ fun ConnectionBanner(
         modifier = modifier.fillMaxWidth(),
         color = color.copy(alpha = 0.12f),
     ) {
-        Row(
-            Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(color)
-            )
-            Spacer(Modifier.size(8.dp))
-            Text(
-                text = text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = color,
-                // Errors are allowed to be long (they often contain a gateway
-                // error code and message) but not to push the screen apart.
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(color)
+                )
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = color,
+                    // Errors are allowed to be long (they often contain a gateway
+                    // error code and message) but not to push the screen apart.
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // 连不上时绝大多数情况不是「被取消配对」，而是电脑端重启后隧道地址变了
+            // （quick tunnel 每次启动都是新域名）。用户把这理解成「过一段时间就自动
+            // 取消配对了」。这里明说病因和动作，比让他自己猜是账号问题要好。
+            if (error != null) {
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    text = "电脑端每次重启后连接地址都会变。到电脑上重新打开 DSH 的远程面板，用新的二维码或链接配对即可（不需要卸载重装）。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = PocketColors.muted,
+                )
+            }
         }
     }
 }

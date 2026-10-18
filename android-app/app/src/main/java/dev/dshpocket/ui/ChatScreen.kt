@@ -134,67 +134,40 @@ fun ChatScreen(
     var pickPermission by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    // 进入会话时**直接停在最新一条**上，而不是停在顶部。
+    // 进入会话时**直接停在最新一条**上。
     //
-    // 这是用户报的「点进会话要一直往下滑才能到最新」的原因：LazyColumn 默认从
-    // index 0（最旧的一条）开始，而会话历史往往几十条，于是打开一个正在跑的会话
-    // 看到的是几天前的开场白，最新进展在屏幕外好几屏的地方。
+    // ### 为什么用 reverseLayout 而不是「打开后滚到底」
     //
-    // 不能靠下面的"跟随末尾"逻辑来做这件事 —— 那个逻辑要求 `nearBottom` 为真，
-    // 而刚进入时列表还没布局，`totalItemsCount` 是 0，判断结果为假，于是永远不滚。
-    // 所以这里是一个**一次性的初始跳转**，跟"是否在底部"无关。
+    // 前面试过两版「打开后滚到底」：一次跳两次 `scrollToItem`、一次每帧重试最多
+    // 30 帧。两版都仍然会在长历史上停在中间 —— 因为 LazyColumn 首次布局只测量
+    // 可见区附近，`scrollToItem(最后一个)` 在布局完成前只是个「意图」，落点会差
+    // 很多帧；而这个会话的历史长度、气泡高度在打开那一刻都还不知道，靠重试去追
+    // 一个一直在变的布局目标，本质上是在和布局赛跑。
     //
-    // key 用 `sessionId`：换会话要重新跳（新会话的历史完全不同），同一个会话里
-    // 后续的增量则交给下面的跟随逻辑。
+    // `reverseLayout = true` 把这件事从「运行时追赶」变成「布局性质」：列表从
+    // 底部开始排列，index 0 就在视觉最底部。于是「打开时停在最新一条」不再需要
+    // 任何滚动调用 —— 它就是初始状态。新消息进来只要保持 index 0 可见即可。
     //
-    // **为什么是重试循环而不是一次 scrollToItem**：旧版只跳两次（`scrollToItem`
-    // 后等一帧再 `scrollToItem`），在长历史上仍然停在中间。原因是 LazyColumn 的
-    // 首次布局只测量可见区附近的项目，一次 scrollToItem 到一个几百项之外的位置，
-    // 在布局完成前只是个"意图"，实际落点会差很多帧。这里改成：只要还没到最后一
-    // 条就一直重试，每帧一次，最多 30 帧（半秒），直到真正落到底部。半秒后放弃
-    // 是为了不让一个异常会话把 CPU 拖死；此时下面的跟随逻辑已经能接手。
-    var didInitialJump by remember(state.sessionId) { mutableStateOf(false) }
-    LaunchedEffect(state.sessionId, state.items.size, state.streamingText.length) {
-        if (didInitialJump) return@LaunchedEffect
-        val total = state.items.size + if (state.streamingText.isNotEmpty()) 1 else 0
-        if (total <= 0) return@LaunchedEffect
-        repeat(30) {
-            val last = listState.layoutInfo.totalItemsCount - 1
-            if (last < 0) { withFrameNanos { }; return@repeat }
-            listState.scrollToItem(last)
-            withFrameNanos { }
-            // 已经到最后一项了，布局也稳定了（最后一项的 offset 不再变化）。
-            val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            if (lastVisible >= last) { didInitialJump = true; return@LaunchedEffect }
-        }
-        didInitialJump = true
-    }
+    // 代价是条目顺序要反过来喂（最新在最前），见下面的 `asReversed()`。
+    //
+    // key 用 `sessionId` 是为了让 `rememberSaveable` 里的折叠状态跟着会话走 ——
+    // 换一个会话时工具块的展开状态不应该继承上一个会话的。
+    val reversedItems = remember(state.items) { state.items.asReversed() }
 
-    // 跟随末尾，但只在用户本来就在底部时才跟。
-    //
-    // 两个细节都是修抖动的：
-    //
-    // 1. **判断用户是否在底部。** 早先无条件滚动，用户想往上翻看前文时每来一个
-    //    增量就被拽回底部，屏幕上就是"内容自己在动"。
-    // 2. **流式增量用 `scrollToItem`（瞬时）而不是 `animateScrollToItem`。**
-    //    模型每秒能吐十几个增量，每个都启动一次动画等于让列表一直在动画中，
-    //    看起来就是持续抖动。只有"新增一整条消息"才值得一次动画。
+    // 跟随末尾：`reverseLayout` 下「末尾」是 index 0，所以判据是第一个可见项是否
+    // 在 0 附近。用户往上翻看历史时不要把他拽回来。
     val nearBottom by remember {
         derivedStateOf {
             val info = listState.layoutInfo
-            val last = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= info.totalItemsCount - 2
+            if (info.totalItemsCount == 0) true
+            else (info.visibleItemsInfo.firstOrNull()?.index ?: 0) <= 1
         }
     }
     LaunchedEffect(state.items.size, state.streamingText.length) {
-        val total = state.items.size + if (state.streamingText.isNotEmpty()) 1 else 0
-        if (total <= 0 || !nearBottom) return@LaunchedEffect
-        if (state.streamingText.isNotEmpty()) {
-            listState.scrollToItem(total - 1)
-        } else {
-            listState.animateScrollToItem(total - 1)
-        }
+        if (!nearBottom) return@LaunchedEffect
+        // 瞬时滚动而不是动画：模型每秒吐十几个增量，每个都启动一次动画等于让列表
+        // 一直在动画中，屏幕上就是持续抖动。
+        listState.scrollToItem(0)
     }
 
     // A confirmation step, not a direct action: cancelling is irreversible and
@@ -357,22 +330,20 @@ fun ChatScreen(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
+                        // reverseLayout：index 0 在视觉最底部。见上文长注释 —— 这是
+                        // 「打开就停在最新一条」的实现方式，不依赖任何滚动调用。
+                        reverseLayout = true,
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
                             start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp,
                         ),
-                        // 间距 14dp 而不是 8dp：助手回答现在没有气泡边框，条目之间
+                        // 间距 14dp 而不是 8dp：助手回答现在是一层浅底卡片，条目之间
                         // 只靠留白区分，间距太小会让两段回答黏成一段。
                         verticalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        // `key = { it.key }` is load-bearing, not decoration: it is
-                        // what lets a re-delivered record update its existing bubble
-                        // instead of appending a duplicate, and it preserves scroll
-                        // position when older items are re-baselined by a snapshot.
-                        items(state.items, key = { it.key }) { item ->
-                            Bubble(item)
-                        }
+                        // 流式条目必须排在 index 0（也就是最底部），所以它写在
+                        // items() 之前 —— reverseLayout 下声明的先后就是视觉的从下到上。
                         if (state.streamingText.isNotEmpty()) {
-                            // The in-progress bubble is synthesised here rather than
+                            // The in-progress entry is synthesised here rather than
                             // stored in `state.items`, so each delta does not rewrite
                             // the whole list. Its key is a fixed sentinel because
                             // exactly one stream can be in flight per session.
@@ -386,6 +357,13 @@ fun ChatScreen(
                                     )
                                 )
                             }
+                        }
+                        // `key = { it.key }` is load-bearing, not decoration: it is
+                        // what lets a re-delivered record update its existing bubble
+                        // instead of appending a duplicate, and it preserves scroll
+                        // position when older items are re-baselined by a snapshot.
+                        items(reversedItems, key = { it.key }) { item ->
+                            Bubble(item)
                         }
                     }
                 }
