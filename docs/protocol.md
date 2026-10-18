@@ -147,6 +147,66 @@ missing "request"; unexpected "_request"
 `chunk.chunk.type` 的取值：`block-start` / `text-delta` / `usage` / `block-end` / `finish`。
 只有 `text-delta` 带 `text`。
 
+### 模型与权限（输入框上的两个选择器）
+
+手机上那两个胶囊读的是**电脑的**配置，不是本地记的。四个端点全部实测过（2026-10，
+桌面端 0.2.0-rc.2）。
+
+`session/modelCatalog` —— 无参数（`{}`，不是 `{"request":{}}`，包了会报
+`gateway/arguments-invalid`）。实测返回 9 个分组、127 个模型：
+
+```json
+{"groups":[{"id":"deepseek-official","name":"deepseek-official","models":[
+  {"id":"deepseek-flash","name":"DeepSeek-V41-Flash",
+   "reasoning":{"efforts":[{"id":"off","name":"Off","description":"..."},
+                           {"id":"low","name":"Low","description":"..."},
+                           {"id":"high","name":"High","description":"..."},
+                           {"id":"max","name":"Max","description":"..."}],
+                "defaultEffort":"high"}}]}],
+ "default":{"provider":"deepseek-official","model":"deepseek-flash","reasoningEffort":"low"},
+ "failures":[]}
+```
+
+127 个模型里有 23 个**没有** `reasoning` 字段 —— 它们不接受 reasoningEffort，给它们
+发一个就会在发送后整条被拒。所以详情页只在有档位时才出现第二步。
+
+`permissionPresets/catalog` —— 同样无参数。实测：
+
+```json
+{"options":[{"value":"read-only","name":"read-only"},
+            {"value":"workspace-write","name":"workspace-write"},
+            {"value":"danger-full-access","name":"danger-full-access"}],
+ "defaultOptions":[...same...],
+ "defaultPreset":"workspace-write"}
+```
+
+`session/projections` —— `{"request":{"sessionId":"..."}}`（用 `_request`、
+裸 `sessionId`、或 `{kind:"session",sessionId}` 的 address 形式都报错）。返回该会话
+的全部投影，手机只取两处：
+
+```json
+{"values":{
+  "modelSelection":{"lastUsed":{"provider":"buddy","model":"deepseek-v4.1-flash","reasoningEffort":"high"},
+                    "next":{"provider":"buddy","model":"deepseek-v4.1-flash","reasoningEffort":"high"}},
+  "permissions":{"currentValue":"danger-full-access"}}}
+```
+
+`next` 才是下一个 turn 会用的；`lastUsed` 是历史。手机显示 `next`。
+
+`session/selectModel` —— `{"request":{"sessionId","provider","model","reasoningEffort"}}`。
+`reasoningEffort` 为 null 时要**省略**这个键，不能发 JSON `null`。返回
+`{"selected":{...}}`，是电脑实际存下的三元组（可能与我们请求的不同），以它为准。
+
+**权限没有对应的写端点。** 改档位只能走 `commands/execute` 发斜杠命令：
+
+```json
+{"agentId":"session-...","line":"/permission read-only","submittedAttachments":[]}
+```
+
+返回 `{"result":{"kind":"success","text":"preset read-only"}}` 只说明**命令跑了**，
+不保证改成功——未知档位也是返回一段可读文本而不是错误码。因此手机在发完命令后必须
+重读 `session/projections.permissions.currentValue` 才算确认。
+
 ### 事件类型与含义
 
 | 事件 | 含义 | 手机怎么用 |

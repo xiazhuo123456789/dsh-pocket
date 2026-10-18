@@ -1,16 +1,16 @@
 # 构建产物 / Build artifacts
 
-## v0.2.0
+## v0.3.0
 
 | 文件 / File | 大小 / Size | SHA-256 |
 | --- | --- | --- |
-| `dsh-pocket-0.2.0.apk` | 1.75 MiB (1,839,674 B) | `40eb5efe6ce29c8e9b596572bab3e428f88bd7c440e4f9175f6d372efbeb46dd` |
-| `dsh-pocket-0.2.0-debug.apk` | 18.87 MiB (19,787,095 B) | `ab9244fc2e4058071a46eab8d1099d37dfce8c874a23a1281096ab0aaa11fc21` |
+| `dsh-pocket-0.3.0.apk` | 1.77 MiB (1,856,062 B) | `0d5e2117e23b8c7e60f0466d1a10dbdb94b8cc5c3baa5b9dd37d3466381983ae` |
+| `dsh-pocket-0.3.0-debug.apk` | 18.80 MiB (19,708,663 B) | `6813519ae8d10457c6054cd1be20e9733599e977ec5cdb5ebad4dc00b3b72d19` |
 
-`dsh-pocket-0.2.0.apk` 是体积优化后的发布包（R8 代码压缩 + 资源收缩），日常安装用这个。
-`dsh-pocket-0.2.0-debug.apk` 保留完整符号信息，只在排障或抓堆栈时用。
+`dsh-pocket-0.3.0.apk` 是体积优化后的发布包（R8 代码压缩 + 资源收缩），日常安装用这个。
+`dsh-pocket-0.3.0-debug.apk` 保留完整符号信息，只在排障或抓堆栈时用。
 
-The `0.2.0` APK is the shrinker-built release; use it for normal installation. The
+The `0.3.0` APK is the shrinker-built release; use it for normal installation. The
 `-debug` APK keeps full symbols and exists for troubleshooting only.
 
 两者使用**相同**的调试密钥签名，可以互相覆盖安装，不需要先卸载。
@@ -20,17 +20,17 @@ uninstalling first.
 校验下载完整性和签名身份 / verify a download:
 
 ```bash
-sha256sum dsh-pocket-0.2.0.apk
-# → 40eb5efe6ce29c8e9b596572bab3e428f88bd7c440e4f9175f6d372efbeb46dd
+sha256sum dsh-pocket-0.3.0.apk
+# → 0d5e2117e23b8c7e60f0466d1a10dbdb94b8cc5c3baa5b9dd37d3466381983ae
 
-apksigner verify --print-certs dsh-pocket-0.2.0.apk
+apksigner verify --print-certs dsh-pocket-0.3.0.apk
 # → signer #1 certificate SHA-256 digest: ee49dd744f1092f51f31c6e29cbdb90565294f7f5b6c153317d7bdaea029dfaa
 ```
 
 ## 安装 / Install
 
 ```bash
-adb install -r dsh-pocket-0.2.0.apk
+adb install -r dsh-pocket-0.3.0.apk
 ```
 
 或者把 APK 传到手机上点击安装（需要在系统设置里允许「安装未知来源应用」）。
@@ -48,18 +48,18 @@ each other — same LAN, or a publicly reachable tunnel origin on the desktop si
 
 ```
 package:           dev.dshpocket
-versionCode:       2
-versionName:       0.2.0
+versionCode:       3
+versionName:       0.3.0
 minSdkVersion:     26 (Android 8.0)
 targetSdkVersion:  35 (Android 15)
 compileSdkVersion: 35
 ```
 
-在应用内的「设置 → 关于 → 版本」里也能看到 `0.2.0 (2)`。如果你看到的是
-`0.1.0 (1)`，那装的是旧包，下面的新行为都不会出现。
+在应用内的「设置 → 关于 → 版本」里也能看到 `0.3.0 (3)`。如果你看到的是
+`0.2.0 (2)` 或更早，那装的是旧包，下面这一版的新行为都不会出现。
 
-The in-app value is under Settings → About → Version. If it reads `0.1.0 (1)`, the
-installed package is the old build and none of the 0.2.0 behaviour applies.
+The in-app value is under Settings → About → Version. If it reads `0.2.0 (2)` or lower,
+the installed package is an older build and none of the 0.3.0 behaviour applies.
 
 ## 申请了哪些权限 / Declared permissions
 

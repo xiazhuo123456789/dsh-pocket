@@ -3,6 +3,9 @@ package dev.dshpocket.core
 import dev.dshpocket.data.AppSettings
 import dev.dshpocket.data.PairedDesktop
 import dev.dshpocket.protocol.ApprovalRequest
+import dev.dshpocket.protocol.ModelCatalog
+import dev.dshpocket.protocol.ModelSelection
+import dev.dshpocket.protocol.PermissionPreset
 
 /**
  * Coarse connection health.
@@ -124,6 +127,38 @@ data class ChatState(
      * the report that made this field necessary.
      */
     val loadingHistory: Boolean = false,
+    /**
+     * The model and effort that the **computer** will use for the next turn.
+     *
+     * `null` means "not known yet", which is a distinct third state from "the
+     * desktop's default" — painting a default here before the desktop answers
+     * would tell the user they are on model X while the turn actually runs on Y.
+     * Filled from `session/projections.modelSelection.next` on open, and from the
+     * catalog's `default` for a brand-new session.
+     */
+    val model: ModelSelection? = null,
+    /**
+     * The permission preset the **computer** currently enforces, e.g.
+     * `workspace-write`.
+     *
+     * Also `null` until known. This field is deliberately read from the desktop
+     * rather than kept as local UI state: the phone showing "read-only" while the
+     * computer is in `danger-full-access` is precisely the kind of mismatch that
+     * gets someone's files overwritten.
+     */
+    val permission: String? = null,
+    /** The catalog backing the model picker; `null` until it has been fetched. */
+    val modelCatalog: ModelCatalog? = null,
+    /** The presets backing the permission picker. Empty until fetched. */
+    val permissionPresets: List<PermissionPreset> = emptyList(),
+    /**
+     * True while a model/permission change is in flight.
+     *
+     * Exists so the composer can show a spinner on the control the user just
+     * touched instead of letting them fire five changes at a computer that answers
+     * in hundreds of milliseconds over a tunnel.
+     */
+    val changingPreference: Boolean = false,
 ) {
     /**
      * [Done], [Failed] and [Cancelled] all mean "no turn is in flight" but differ in

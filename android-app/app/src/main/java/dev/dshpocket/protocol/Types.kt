@@ -6,6 +6,120 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
+ * One selectable model, as the desktop reports it.
+ *
+ * ### Why this is a flat choice and not a (provider, model) pair
+ *
+ * On the wire the pair *is* two fields, but on screen it is one decision: the user
+ * thinks "use the Pro model", not "use provider X then model Y". [provider] is kept
+ * only because `session/selectModel` requires it back verbatim, and because two
+ * providers can expose a model with the same id.
+ *
+ * @param provider the provider id to send back, e.g. `deepseek-official`.
+ * @param model the model id within that provider, e.g. `deepseek-v4-pro`.
+ * @param displayName the label the desktop prefers; falls back to [model] rather
+ *   than showing a raw id when the desktop omitted a name.
+ * @param description one-line blurb, when the desktop supplies one. Shown as a
+ *   second line in the picker — it is the only thing that distinguishes two models
+ *   with similar names.
+ * @param efforts the reasoning-effort steps this model advertises, in the
+ *   desktop's own order. Empty means "this model does not offer the knob", which
+ *   is why the UI hides the effort row instead of showing a disabled one.
+ * @param defaultEffort the effort the desktop would pick if the user says nothing.
+ */
+data class ModelOption(
+    val provider: String,
+    val model: String,
+    val displayName: String,
+    val description: String?,
+    val efforts: List<ReasoningEffort>,
+    val defaultEffort: String?,
+) {
+    /**
+     * Stable identity for `LazyColumn` keys and for "is this the current one".
+     *
+     * Composed of both ids because provider and model id are only unique together
+     * — two providers really do ship a model called `deepseek-flash`.
+     */
+    val key: String get() = "$provider/$model"
+}
+
+/**
+ * One reasoning-effort step (`off` / `low` / `high` / `max` on current builds).
+ *
+ * The set is **not** hard-coded in this app: it comes from the catalog, because a
+ * provider may support none, all, or a different vocabulary. Passing an effort a
+ * model does not support makes the desktop reject the whole prompt with
+ * `UNSUPPORTED_REASONING_EFFORT`, so guessing here is not free.
+ */
+data class ReasoningEffort(
+    val id: String,
+    val name: String,
+    val description: String?,
+)
+
+/**
+ * One group of models sharing a provider, as `session/modelCatalog` reports it.
+ *
+ * Grouped rather than flattened because the desktop's own picker groups them, and
+ * a flat list of 20+ models from 9 providers is unnavigable on a phone.
+ */
+data class ModelGroup(
+    val id: String,
+    val name: String,
+    val models: List<ModelOption>,
+)
+
+/**
+ * What the composer needs to draw the model picker: the groups plus the desktop's
+ * own default.
+ *
+ * @param defaultSelection what a brand-new session uses. Shown as "默认" so the user
+ *   can tell "I chose this" from "the desktop chose this".
+ * @param failures providers the desktop could not enumerate. Surfaced rather than
+ *   hidden: an empty group here means "provider misconfigured on the computer",
+ *   which is actionable, not "no models".
+ */
+data class ModelCatalog(
+    val groups: List<ModelGroup>,
+    val defaultSelection: ModelSelection,
+    val failures: List<String>,
+)
+
+/**
+ * A (provider, model, effort) triple — both what the user picked and what the
+ * desktop reports back as currently selected.
+ *
+ * @param reasoningEffort nullable because a model without the knob has no effort at
+ *   all; sending `null` must omit the field rather than send JSON `null`, which the
+ *   gateway's strict argument check would reject.
+ */
+data class ModelSelection(
+    val provider: String,
+    val model: String,
+    val reasoningEffort: String?,
+)
+
+/**
+ * One permission preset, e.g. `read-only` / `workspace-write` / `danger-full-access`.
+ *
+ * These are the desktop's own presets, fetched from `permissionPresets/catalog`.
+ * The app deliberately does not translate or invent them: a mismatch between what
+ * the phone claims a preset means and what the computer enforces is a security
+ * bug, so the honest move is to show the desktop's own vocabulary.
+ *
+ * @param dangerous true for presets that let the agent write outside the workspace
+ *   or run unrestricted commands. Used only to colour the warning — the list itself
+ *   still comes from the desktop, so a preset added upstream appears without a code
+ *   change.
+ */
+data class PermissionPreset(
+    val value: String,
+    val name: String,
+    val dangerous: Boolean,
+)
+
+/**
  * One entry of a session journal, as delivered by `session/follow`.
  *
  * The journal is the desktop's own event log, so these are *observations of what

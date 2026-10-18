@@ -248,6 +248,187 @@ class SessionApi(private val client: GatewayClient) {
     }
 
     /**
+     * Read the desktop's model catalog.
+     *
+     * ### Provenance
+     *
+     * `session/modelCatalog` takes **no arguments at all** (verified against
+     * `lib/typert.remote-client.js`: `parameters: []`), so the wire argument is an
+     * empty object rather than a `request` wrapper. Passing a wrapper yields
+     * `gateway/arguments-invalid`.
+     *
+     * ### Why the app reads this instead of hard-coding a model list
+     *
+     * The catalog is whatever the *computer* is configured for. A hard-coded list
+     * would offer models the desktop cannot route (the user sees a failure only
+     * after sending), and would silently omit models added upstream. It also
+     * carries the per-model `reasoning.efforts` vocabulary, which differs by
+     * provider — sending an unsupported effort makes the desktop reject the whole
+     * prompt before any network I/O.
+     */
+    suspend fun modelCatalog(): ModelCatalog {
+        val value = client.call("session/modelCatalog")
+        val root = value.asObjOrNull()
+        val groups = root?.arr("groups")?.mapNotNull { g ->
+            val go = g.asObjOrNull() ?: return@mapNotNull null
+            val id = go.string("id") ?: return@mapNotNull null
+            val models = go.arr("models")?.mapNotNull { m ->
+                val mo = m.asObjOrNull() ?: return@mapNotNull null
+                val modelId = mo.string("id") ?: return@mapNotNull null
+                val reasoning = mo.obj("reasoning")
+                val efforts = reasoning?.arr("efforts")?.mapNotNull { e ->
+                    val eo = e.asObjOrNull() ?: return@mapNotNull null
+                    val effortId = eo.string("id") ?: return@mapNotNull null
+                    ReasoningEffort(
+                        id = effortId,
+                        name = eo.string("name") ?: effortId,
+                        description = eo.string("description"),
+                    )
+                } ?: emptyList()
+                ModelOption(
+                    provider = id,
+                    model = modelId,
+                    // Never render a raw id as a label when the desktop gave a name;
+                    // the id is the wire value, not the human one.
+                    displayName = mo.string("name") ?: modelId,
+                    description = mo.string("description"),
+                    efforts = efforts,
+                    defaultEffort = reasoning?.string("defaultEffort"),
+                )
+            } ?: emptyList()
+            if (models.isEmpty()) return@mapNotNull null
+            ModelGroup(id = id, name = go.string("name") ?: id, models = models)
+        } ?: emptyList()
+
+        val def = root?.obj("default")
+        val defaultSelection = ModelSelection(
+            provider = def?.string("provider").orEmpty(),
+            model = def?.string("model").orEmpty(),
+            reasoningEffort = def?.string("reasoningEffort"),
+        )
+        // `failures` names providers the desktop could not enumerate. Kept so the
+        // picker can say "2 个线路不可用" instead of looking incomplete for no reason.
+        val failures = root?.arr("failures")?.mapNotNull { it.asStringOrNull() } ?: emptyList()
+        return ModelCatalog(groups = groups, defaultSelection = defaultSelection, failures = failures)
+    }
+
+    /**
+     * Change the model used by subsequent turns in one session.
+     *
+     * Wire argument is `request` (not `_request`) — see the table in the class KDoc.
+     * `reasoningEffort` is **omitted** when null rather than sent as JSON `null`:
+     * the gateway validates strictly, and an explicit null is not the same as
+     * "unspecified" there.
+     *
+     * Returns the selection the desktop actually stored, which is authoritative —
+     * callers should render the returned triple, not the one they asked for.
+     */
+    suspend fun selectModel(sessionId: String, selection: ModelSelection): ModelSelection? {
+        val req = buildJsonObject {
+            put("sessionId", sessionId)
+            put("provider", selection.provider)
+            put("model", selection.model)
+            selection.reasoningEffort?.let { put("reasoningEffort", it) }
+        }
+        val value = client.call("session/selectModel", buildJsonObject { put("request", req) })
+        val sel = value.asObjOrNull()?.obj("selected") ?: return null
+        return ModelSelection(
+            provider = sel.string("provider").orEmpty(),
+            model = sel.string("model").orEmpty(),
+            reasoningEffort = sel.string("reasoningEffort"),
+        )
+    }
+
+    /**
+     * Read the permission presets the computer offers.
+     *
+     * `permissionPresets/catalog` also takes no arguments. The list is rendered
+     * as-is: this app does not decide what a preset means, because the phone and
+     * the computer disagreeing about "what read-only allows" would be a security
+     * bug rather than a UX one.
+     *
+     * `dangerous` is derived here, not sent by the desktop: it is our own display
+     * decision, and it is deliberately the *only* thing we hard-code about these
+     * values. A preset added upstream still appears; only an unknown one lacks the
+     * warning colour.
+     */
+    suspend fun permissionCatalog(): List<PermissionPreset> {
+        val value = client.call("permissionPresets/catalog")
+        return value.asObjOrNull()?.arr("options")?.mapNotNull { o ->
+            val oo = o.asObjOrNull() ?: return@mapNotNull null
+            val v = oo.string("value") ?: return@mapNotNull null
+            PermissionPreset(
+                value = v,
+                name = oo.string("name") ?: v,
+                // Matches on the value, not the label: labels are localisable text,
+                // values are the contract.
+                dangerous = v == "danger-full-access",
+            )
+        } ?: emptyList()
+    }
+
+    /**
+     * Change the permission preset of a running or idle session.
+     *
+     * ### Why this goes through a slash command
+     *
+     * There is no `session/setPermission` endpoint. The desktop exposes the switch
+     * as the `/permission <preset>` command, executed through
+     * `commands/execute` with `{agentId, line, submittedAttachments}`. That is
+     * verified against a live desktop: the response is
+     * `{result:{kind:"success", text:"preset read-only"}}`, and
+     * `session/projections.permissions.currentValue` changes accordingly.
+     *
+     * ### Why a "success" result is not enough
+     *
+     * `commands/execute` reports that the *command ran*, not that the preset
+     * changed to what we asked. An unknown preset is reported as a readable
+     * failure text rather than an error code, so the caller must re-read the
+     * projection to confirm. This method therefore returns the command's own text
+     * and lets the ViewModel decide, instead of pretending a boolean is the truth.
+     *
+     * @return the desktop's human-readable result text, or `null` if it reported
+     *   no result at all (which the caller should treat as "unknown", not success).
+     */
+    suspend fun setPermissionPreset(sessionId: String, preset: String): String? {
+        val args = buildJsonObject {
+            put("agentId", sessionId)
+            put("line", "/permission $preset")
+            put("submittedAttachments", buildJsonArray {})
+        }
+        val value = client.call("commands/execute", args)
+        return value.asObjOrNull()?.obj("result")?.string("text")
+    }
+
+    /**
+     * Read the session's *current* model selection and permission preset.
+     *
+     * `session/projections` returns the same projection block that `session/list`
+     * embeds, but for one session on demand. Wire argument is `request`.
+     *
+     * Returns `null` when the desktop answered but the projection is absent, which
+     * happens for a session that has not started a turn yet. Callers must treat
+     * `null` as "not known", never as "default" — showing a stale default would
+     * misreport what the computer will actually do.
+     */
+    suspend fun preferences(sessionId: String): Pair<ModelSelection?, String?> {
+        val req = buildJsonObject { put("sessionId", sessionId) }
+        val values = client.call("session/projections", buildJsonObject { put("request", req) })
+            .asObjOrNull()?.obj("values") ?: return null to null
+        val sel = values.obj("modelSelection")
+        // `next` is the selection the next turn will use; `lastUsed` is history.
+        // The composer must show `next` — that is the one the user is changing.
+        val next = sel?.obj("next")
+        val selection = next?.let { n ->
+            val provider = n.string("provider") ?: return@let null
+            val model = n.string("model") ?: return@let null
+            ModelSelection(provider, model, n.string("reasoningEffort"))
+        }
+        val permissions = values.obj("permissions")?.string("currentValue")
+        return selection to permissions
+    }
+
+    /**
      * Follow one session's event journal plus the live assistant stream.
      *
      * The `address` object is what makes this endpoint reusable for subagents

@@ -18,8 +18,8 @@ android {
         // 之前连续几轮修复都停在 versionCode=1，用户看到的界面其实还是旧包，
         // 而我们的日志里每一次都是"已修复并发布" —— 这个版本号就是为了让这种
         // 情况不可能再发生。
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

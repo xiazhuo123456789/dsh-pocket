@@ -263,6 +263,10 @@ private fun PocketRoot(state: UiState) {
             onStop = { app().viewModel.stop() },
             onApprove = { approval, allow -> app().viewModel.answerApproval(approval, allow) },
             onDismissError = app().viewModel::dismissChatError,
+            // 两个选择器都把值交回 ViewModel，由它发请求并等电脑确认；
+            // 界面上的显示永远是电脑报回来的值，不是这里传出去的值。
+            onSelectModel = app().viewModel::selectModel,
+            onSelectPermission = app().viewModel::selectPermission,
         )
     } else {
         SessionsScreen(

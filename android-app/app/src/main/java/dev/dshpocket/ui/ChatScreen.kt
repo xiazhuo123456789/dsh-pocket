@@ -71,6 +71,7 @@ import dev.dshpocket.core.ChatState
 import dev.dshpocket.core.ConnectionState
 import dev.dshpocket.core.Phase
 import dev.dshpocket.protocol.ApprovalRequest
+import dev.dshpocket.protocol.ModelSelection
 
 /**
  * The conversation view.
@@ -116,9 +117,15 @@ fun ChatScreen(
     onStop: () -> Unit,
     onApprove: (ApprovalRequest, Boolean) -> Unit,
     onDismissError: () -> Unit,
+    onSelectModel: (ModelSelection) -> Unit,
+    onSelectPermission: (String) -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
     var confirmStop by remember { mutableStateOf(false) }
+    // 两个弹层各自一个布尔。刻意不用一个 "哪个弹层打开着" 的枚举：这两个
+    // 不可能同时打开（都从同一条 PreferenceBar 触发），枚举只是多一层无意义的编码。
+    var pickModel by remember { mutableStateOf(false) }
+    var pickPermission by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 跟随末尾，但只在用户本来就在底部时才跟。
@@ -165,6 +172,32 @@ fun ChatScreen(
             dismissButton = {
                 TextButton(onClick = { confirmStop = false }) { Text("取消") }
             },
+        )
+    }
+
+    // 两个选择器都是"确认后才发请求"的弹层：选中的那一刻才调用 ViewModel，
+    // 关闭则一个字节都不发。之所以不在点开时预先乐观更新，是因为真正的值由
+    // 电脑报回来的 projection 决定 —— 先改本地再被回滚会在屏幕上闪一下。
+    if (pickModel) {
+        ModelPickerDialog(
+            catalog = state.modelCatalog,
+            current = state.model,
+            onPick = { selection ->
+                pickModel = false
+                onSelectModel(selection)
+            },
+            onDismiss = { pickModel = false },
+        )
+    }
+    if (pickPermission) {
+        PermissionPickerDialog(
+            presets = state.permissionPresets,
+            current = state.permission,
+            onPick = { preset ->
+                pickPermission = false
+                onSelectPermission(preset)
+            },
+            onDismiss = { pickPermission = false },
         )
     }
 
@@ -336,6 +369,14 @@ fun ChatScreen(
                 busy = state.status == ChatState.Status.Running ||
                     state.status == ChatState.Status.Queued,
                 stopState = state.stopState,
+                model = state.model,
+                permission = state.permission,
+                changingPreference = state.changingPreference,
+                // 链路断了就别让用户点开一个必定失败的弹层；已经取到的目录也
+                // 不再可信（电脑可能已经换了配置），所以两个都给同一个判据。
+                preferencesEnabled = connection.phase == Phase.Connected,
+                onPickModel = { pickModel = true },
+                onPickPermission = { pickPermission = true },
                 onSend = {
                     // Trim before the emptiness check so a draft of only spaces
                     // cannot be sent; clear the field only once the text is accepted
@@ -660,19 +701,39 @@ private fun Composer(
     onDraftChange: (String) -> Unit,
     busy: Boolean,
     stopState: ChatState.StopState,
+    model: ModelSelection?,
+    permission: String?,
+    changingPreference: Boolean,
+    preferencesEnabled: Boolean,
+    onPickModel: () -> Unit,
+    onPickPermission: () -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
     // 输入区用 surfaceContainerLow 而不是 surface：它要与正文区拉开一阶，形成
     // "对话在上面、输入在下面"的分层，否则滚动时输入框像是悬在文字上的浮块。
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Row(
+        Column(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.Bottom,
         ) {
+            // 选择器在输入框**上方**：它是"这句话怎么跑"的前置条件，读起来是
+            // 输入区的一部分；放在下方会贴着键盘被顶出可视区。
+            PreferenceBar(
+                model = model,
+                permission = permission,
+                changing = changingPreference,
+                enabled = preferencesEnabled,
+                onPickModel = onPickModel,
+                onPickPermission = onPickPermission,
+                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+            ) {
             OutlinedTextField(
                 value = draft,
                 onValueChange = onDraftChange,
@@ -710,6 +771,7 @@ private fun Composer(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
                 }
+            }
             }
         }
     }

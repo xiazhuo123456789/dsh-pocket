@@ -9,6 +9,7 @@ import dev.dshpocket.protocol.ApprovalRequest
 import dev.dshpocket.protocol.FollowEvent
 import dev.dshpocket.protocol.GatewayClient
 import dev.dshpocket.protocol.Json
+import dev.dshpocket.protocol.ModelSelection
 import dev.dshpocket.protocol.PairingApi
 import dev.dshpocket.protocol.PromptMode
 import dev.dshpocket.protocol.RemoteCallException
@@ -595,6 +596,12 @@ class PocketViewModel(
         }
         scope.launch { settings.setLastSession(sessionId) }
 
+        // The composer's two selectors describe *this* session, so they are
+        // re-read on every open rather than cached: switching sessions on the
+        // computer is a normal thing to do, and a stale "工作区可写" label would
+        // misreport what the next turn is actually allowed to touch.
+        refreshPreferences(sessionId)
+
         chatJob = scope.launch {
             try {
                 val handle = api.follow(sessionId)
@@ -1117,7 +1124,6 @@ class PocketViewModel(
 
     /**
      * Clear the dismissable error strip on the chat screen.
-     *
      * Only the chat-local `error` is cleared. A connection-level failure lives on
      * [ConnectionState] and must stay visible until the link is actually restored —
      * letting the user dismiss it would be letting them dismiss the fact that they
@@ -1125,6 +1131,189 @@ class PocketViewModel(
      */
     fun dismissChatError() {
         _state.update { it.copy(chat = it.chat.copy(error = null)) }
+    }
+
+    // ------------------------------------------------------- model / permission
+
+    /**
+     * Fetch the model catalog and permission presets once per session open.
+     *
+     * ### Why both, and why here
+     *
+     * The composer needs two lists that only the computer can supply. Fetching
+     * them on open (rather than on first tap) means the picker opens instantly
+     * even over a slow tunnel, and it means a provider misconfiguration surfaces
+     * as a visible "线路不可用" line instead of as a send that fails later.
+     *
+     * ### Why failures are swallowed
+     *
+     * These are *conveniences*, not the transport. If the catalog call fails while
+     * `session/follow` succeeded, the user can still read and send messages; the
+     * picker simply shows "未知" and stays disabled. Turning a catalog failure into
+     * a chat error would misrepresent a working conversation as broken.
+     *
+     * The current selection is read separately from the catalog because it is
+     * per-session state, while the catalog is process-wide.
+     */
+    fun refreshPreferences(sessionId: String? = null) {
+        val api = api ?: return
+        val sid = sessionId ?: _state.value.chat.sessionId ?: return
+        scope.launch {
+            try {
+                val catalog = api.modelCatalog()
+                if (_state.value.chat.modelCatalog == null) {
+                    _state.update { st -> st.copy(chat = st.chat.copy(modelCatalog = catalog)) }
+                }
+                val presets = api.permissionCatalog()
+                if (_state.value.chat.permissionPresets.isEmpty() && presets.isNotEmpty()) {
+                    _state.update { st -> st.copy(chat = st.chat.copy(permissionPresets = presets)) }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // Deliberately silent: see the KDoc above. The composer renders
+                // "未知" for a null catalog, which is honest and non-blocking.
+            }
+            // The current values are per-session and must be re-read on every open.
+            if (activeSessionId != sid) return@launch
+            try {
+                val (selection, permission) = api.preferences(sid)
+                _state.update { st ->
+                    // Guard against a session switch during the round trip: writing
+                    // another conversation's model into this composer would be
+                    // worse than showing "未知" for a moment.
+                    if (st.chat.sessionId != sid) st
+                    else st.copy(
+                        chat = st.chat.copy(
+                            model = selection ?: st.chat.model,
+                            permission = permission ?: st.chat.permission,
+                        )
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // Keep whatever we had; `null` already means "not known".
+            }
+        }
+    }
+
+    /**
+     * Change the model (and reasoning effort) for the open session.
+     *
+     * ### Why the UI renders the *returned* selection
+     *
+     * `session/selectModel` answers with the triple the desktop actually stored,
+     * which can differ (e.g. the desktop clamps an effort the model does not
+     * support). Rendering our own request would then show a model the next turn
+     * will not use, so the reply wins and the requested value is only a fallback.
+     *
+     * A failure here is reported on the chat error strip *and* leaves the previous
+     * selection in place — the user must be able to tell that the switch did not
+     * happen.
+     */
+    fun selectModel(selection: ModelSelection) {
+        val api = api ?: return
+        val sessionId = _state.value.chat.sessionId ?: return
+        if (_state.value.chat.changingPreference) return
+        _state.update { it.copy(chat = it.chat.copy(changingPreference = true)) }
+        scope.launch {
+            try {
+                val stored = api.selectModel(sessionId, selection)
+                _state.update { st ->
+                    if (st.chat.sessionId != sessionId) st
+                    else st.copy(
+                        chat = st.chat.copy(
+                            model = stored ?: selection,
+                            changingPreference = false,
+                        )
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _state.update { st ->
+                    st.copy(
+                        chat = st.chat.copy(
+                            changingPreference = false,
+                            error = "切换模型失败：${describe(e)}",
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Change the permission preset for the open session.
+     *
+     * ### Why this re-reads instead of trusting the command result
+     *
+     * `/permission <preset>` is a slash command, so `commands/execute` reports
+     * that *the command ran* — an unrecognised preset still comes back as a
+     * readable text, not an error code. The only trustworthy confirmation is the
+     * projection changing, so this deliberately does not set [ChatState.permission]
+     * from the request. If the re-read disagrees, the computer wins and the user
+     * sees the real preset; the command's own text is shown as an error when it
+     * clearly reports a problem.
+     */
+    fun selectPermission(preset: String) {
+        val api = api ?: return
+        val sessionId = _state.value.chat.sessionId ?: return
+        if (_state.value.chat.changingPreference) return
+        _state.update { it.copy(chat = it.chat.copy(changingPreference = true)) }
+        scope.launch {
+            var commandText: String? = null
+            try {
+                commandText = api.setPermissionPreset(sessionId, preset)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _state.update { st ->
+                    st.copy(
+                        chat = st.chat.copy(
+                            changingPreference = false,
+                            error = "切换权限失败：${describe(e)}",
+                        )
+                    )
+                }
+                return@launch
+            }
+            try {
+                val (_, permission) = api.preferences(sessionId)
+                _state.update { st ->
+                    if (st.chat.sessionId != sessionId) st
+                    else {
+                        // The desktop's own text is only surfaced when the
+                        // projection did not move to the preset we asked for:
+                        // otherwise every successful switch would flash a banner.
+                        val mismatch = permission != null && permission != preset
+                        st.copy(
+                            chat = st.chat.copy(
+                                permission = permission ?: st.chat.permission,
+                                changingPreference = false,
+                                error = if (mismatch) {
+                                    commandText ?: "电脑没有切换到 $preset（当前 ${permission ?: "未知"}）"
+                                } else {
+                                    st.chat.error
+                                },
+                            )
+                        )
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                _state.update { st ->
+                    st.copy(
+                        chat = st.chat.copy(
+                            changingPreference = false,
+                            error = "权限已发送，但无法确认：${describe(e)}",
+                        )
+                    )
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------- approval

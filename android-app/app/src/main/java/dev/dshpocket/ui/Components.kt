@@ -13,7 +13,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -29,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import dev.dshpocket.core.ChatItem
 import dev.dshpocket.core.ChatState
 import dev.dshpocket.core.Phase
+import dev.dshpocket.protocol.ModelSelection
 
 /**
  * Small pill showing the live task status.
@@ -231,4 +236,129 @@ fun roleColors(role: ChatItem.Role): Pair<Color, Color> = when (role) {
         MaterialTheme.colorScheme.surfaceContainerLow to MaterialTheme.colorScheme.onSurfaceVariant
     ChatItem.Role.System ->
         MaterialTheme.colorScheme.surfaceContainer to MaterialTheme.colorScheme.onSurfaceVariant
+}
+
+/**
+ * 输入区上方那一行「模型 · 权限」胶囊按钮。
+ *
+ * ### 为什么要有它
+ *
+ * 桌面端的输入框下面就有这两个选择器，用户在那里养成的手感必须能延续到手机上：
+ * 「这一句话用哪个模型跑、允许它动多大的范围」是**发出去之前**就要定的事，藏进
+ * 设置页等于让人每次去翻。
+ *
+ * ### 为什么显示的是电脑报回来的值
+ *
+ * 两个胶囊上的文字都来自 `session/projections`，而不是我们自己记住的点击结果。
+ * 差别很关键：用户在电脑上也改过模型时，手机若显示自己上次点的那个，就会让人
+ * 以为这句话会用 A 模型跑，实际用的是 B。因此 [model] / [permission] 为 `null`
+ * 时这里显示「未知」并置灰 —— **"不知道"必须长得像"不知道"**。
+ *
+ * ### 为什么禁用而不是隐藏
+ *
+ * 拿到值之前隐藏会让整行高度跳变；拿到值之后若不可用（比如 `agentAvailable`
+ * 为 false）也要给出理由。禁用 + 置灰保持了版式稳定，也说明"这里本来有东西"。
+ *
+ * @param model 电脑当前为下一个 turn 选定的模型；`null` = 还没问到。
+ * @param permission 电脑当前强制的权限档位；`null` = 还没问到。
+ * @param changing 有一次切换在飞；此时两个胶囊都禁用，避免连续点击把电脑打乱。
+ * @param enabled 整体是否可交互（未连接、加载中等情况传 `false`）。
+ * @param onPickModel 打开模型选择器。
+ * @param onPickPermission 打开权限选择器。
+ */
+@Composable
+fun PreferenceBar(
+    model: ModelSelection?,
+    permission: String?,
+    changing: Boolean,
+    enabled: Boolean,
+    onPickModel: () -> Unit,
+    onPickPermission: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // 模型胶囊上只写模型名，不写线路名：手机宽度有限，"DeepSeek-V41-Flash" 已经
+    // 占满，再拼上 provider 会被截断成看不出是什么。线路在弹层里显示。
+    val modelLabel = model?.model ?: "未知"
+    // 权限用电脑端自己的词汇原样显示。故意不做「只读/可写/完全访问」这类中文化
+    // —— 这是安全相关的档位名，翻译走样比不翻译更危险。
+    val permissionLabel = permission ?: "未知"
+    val permissionDanger = permission == "danger-full-access"
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        PreferenceChip(
+            // AutoAwesome 是"模型/智能"的通用隐喻，比一个机器人图标更不喧宾夺主。
+            icon = Icons.Default.AutoAwesome,
+            label = modelLabel,
+            enabled = enabled && !changing,
+            onClick = onPickModel,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        PreferenceChip(
+            icon = if (permissionDanger) Icons.Default.WarningAmber else Icons.Default.Shield,
+            label = permissionLabel,
+            enabled = enabled && !changing,
+            onClick = onPickPermission,
+            // 完全访问用错误色描边：它是唯一一个能让 agent 写到工作区之外、
+            // 或执行不受限命令的档位，必须在余光里就能认出来。
+            tint = if (permissionDanger) MaterialTheme.colorScheme.error else null,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (changing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
+                strokeWidth = 2.dp,
+            )
+        }
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+/**
+ * 一个可点击的小胶囊，用于输入区上方的选择器。
+ *
+ * 用 [Surface] + `clickable` 而不是 `AssistChip`：后者的默认高度与内边距在
+ * 输入框正上方显得过重，而这行需要"轻到不像工具栏"。
+ */
+@Composable
+private fun PreferenceChip(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color? = null,
+) {
+    val contentColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        tint != null -> tint
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = contentColor,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                // 单行 + 尾部省略：模型名可能很长，胶囊不能因此把整行撑破，
+                // 也不能换行把输入框往下推。
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
