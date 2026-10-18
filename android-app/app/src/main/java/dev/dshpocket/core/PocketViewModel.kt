@@ -1233,7 +1233,12 @@ class PocketViewModel(
                 throw e
             } catch (e: Throwable) {
                 _state.update { st ->
-                    st.copy(
+                    // Guard on sessionId for the same reason the success path
+                    // does: the user can leave the session while this call is in
+                    // flight, and an error from the old session must not appear
+                    // on the new one's error strip.
+                    if (st.chat.sessionId != sessionId) st
+                    else st.copy(
                         chat = st.chat.copy(
                             changingPreference = false,
                             error = "切换模型失败：${describe(e)}",
@@ -1270,7 +1275,8 @@ class PocketViewModel(
                 throw e
             } catch (e: Throwable) {
                 _state.update { st ->
-                    st.copy(
+                    if (st.chat.sessionId != sessionId) st
+                    else st.copy(
                         chat = st.chat.copy(
                             changingPreference = false,
                             error = "切换权限失败：${describe(e)}",
@@ -1293,7 +1299,16 @@ class PocketViewModel(
                                 permission = permission ?: st.chat.permission,
                                 changingPreference = false,
                                 error = if (mismatch) {
-                                    commandText ?: "电脑没有切换到 $preset（当前 ${permission ?: "未知"}）"
+                                    // Do NOT put `commandText` here on its own.
+                                    // `/permission <preset>` answers with a
+                                    // success message like "preset read-only"
+                                    // even when nothing changed, so rendering it
+                                    // as the error would read as confirmation of
+                                    // the very thing that failed. Lead with the
+                                    // fact, and quote the desktop's text only as
+                                    // supporting detail.
+                                    "电脑没有切换到 $preset（当前 ${permission ?: "未知"}）" +
+                                        (commandText?.let { "；电脑回：$it" } ?: "")
                                 } else {
                                     st.chat.error
                                 },
@@ -1305,7 +1320,8 @@ class PocketViewModel(
                 throw e
             } catch (e: Throwable) {
                 _state.update { st ->
-                    st.copy(
+                    if (st.chat.sessionId != sessionId) st
+                    else st.copy(
                         chat = st.chat.copy(
                             changingPreference = false,
                             error = "权限已发送，但无法确认：${describe(e)}",
