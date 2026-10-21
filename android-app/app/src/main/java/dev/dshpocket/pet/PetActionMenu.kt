@@ -12,10 +12,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -44,9 +49,16 @@ import kotlin.math.roundToInt
  * close", card anchored at the bottom. The scrim is what makes dismissal work on
  * *other apps*, where there is no back key and no Activity to receive a touch.
  *
- * Every entry maps to something the desktop pet can do; nothing here is a
- * placeholder. The animation chips use the same clip ids the state machine uses,
- * so a chip and a real host event run exactly the same frames.
+ * ### Why the actions are grouped
+ *
+ * The desktop pet's right-click menu is a category tree (待机 / 转向 / 拖拽 /
+ * 点击回应 / 移动 / 小动作 / 玩耍 / 吃什么 / 时节 / 文字 / 余额 / 碎碎念 /
+ * 工作状态). A flat strip of fourteen chips is not that menu; it is a list where
+ * every entry has the same weight, so the user has to read all of them. This sheet
+ * keeps the categories that the bundled clip set can actually honour: 互动 / 小动作
+ * / 干活 / 结果, plus 碎碎念 as a bubble. Categories whose art we do not ship
+ * (时节、文字、余额档位) are deliberately absent rather than filled with a clip
+ * that does something else.
  *
  * @param roam whether the pet wanders around the screen on its own.
  * @param size pet width in dp.
@@ -56,6 +68,7 @@ fun PetActionMenu(
     roam: Boolean,
     size: Int,
     onReaction: (String) -> Unit,
+    onSay: ((String) -> Unit)? = null,
     onRoamChange: (Boolean) -> Unit,
     onSizeChange: (Int) -> Unit,
     onResetPosition: () -> Unit,
@@ -78,37 +91,74 @@ fun PetActionMenu(
                 // 吞掉落在卡片上的点击：否则它会穿到下面那层"点任意处关闭"的遮罩上，
                 // 用户点一下动作按钮，菜单先关了、动作却没播。
                 .pointerInput(Unit) { detectTapGestures { } },
-            shape = RoundedCornerShape(24.dp),
+            shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
         ) {
-            Column(Modifier.padding(vertical = 12.dp)) {
-                Text(
-                    "大肥鱼",
-                    modifier = Modifier.padding(horizontal = 20.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "点一下让它做动作，拖着它能换位置",
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(
+                Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 14.dp),
+            ) {
+                Column(Modifier.padding(horizontal = 20.dp)) {
+                    Text(
+                        "大肥鱼",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "点一下让它做动作，拖着它能换位置",
+                        modifier = Modifier.padding(top = 2.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
 
-                Spacer(Modifier.height(10.dp))
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(PET_QUICK_ACTIONS) { action ->
-                        OutlinedButton(onClick = { onReaction(action.clip) }) {
-                            Text(action.label)
+                Spacer(Modifier.height(12.dp))
+
+                PET_ACTION_GROUPS.forEach { group ->
+                    Text(
+                        group.title,
+                        modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 2.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(group.actions) { action ->
+                            OutlinedButton(onClick = { onReaction(action.clip) }) {
+                                Text(action.label)
+                            }
                         }
                     }
                 }
 
+                if (onSay != null) {
+                    Text(
+                        "说话",
+                        modifier = Modifier.padding(start = 20.dp, top = 10.dp, bottom = 2.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        item {
+                            FilledTonalButton(onClick = { onSay(PET_QUIPS.random()) }) {
+                                Text("碎碎念")
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(Modifier.padding(horizontal = 20.dp))
                 Spacer(Modifier.height(6.dp))
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -118,7 +168,7 @@ fun PetActionMenu(
                     Column(Modifier.weight(1f)) {
                         Text("自动漫步", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            "待机时自己在屏幕上走动",
+                            "待机时自己在屏幕上走动、碰到边会弹回来",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -163,23 +213,68 @@ fun PetActionMenu(
 /** One menu chip: the clip id plus the word a user would look for. */
 data class PetQuickAction(val label: String, val clip: String)
 
+/** One row of the menu: a desktop-menu category that the bundled art can honour. */
+data class PetActionGroup(val title: String, val actions: List<PetQuickAction>)
+
 /**
- * Ordered by how often a person actually pokes a pet: greetings first, work
- * states last (those are what the host drives on its own anyway).
+ * Mirrors the desktop pet's category tree, restricted to clips that exist.
+ *
+ * 互动 = the things a finger does to a pet. 小动作 = the idle micro-actions it
+ * plays by itself. 干活 / 结果 = the host-driven states, exposed so the user can
+ * preview what each one looks like without having to make the computer work.
  */
-val PET_QUICK_ACTIONS = listOf(
-    PetQuickAction("戳一下", "poke"),
-    PetQuickAction("摸摸头", "head_pat"),
-    PetQuickAction("伸懒腰", "idle_stretch"),
-    PetQuickAction("打哈欠", "idle_yawn"),
-    PetQuickAction("摇尾巴", "tail"),
-    PetQuickAction("吃东西", "eat_token"),
-    PetQuickAction("开心", "success"),
-    PetQuickAction("出错", "error"),
-    PetQuickAction("待机", "idle"),
-    PetQuickAction("思考", "thinking"),
-    PetQuickAction("干活", "working"),
-    PetQuickAction("找东西", "working_search"),
-    PetQuickAction("敲命令", "working_command"),
-    PetQuickAction("等待", "waiting"),
+val PET_ACTION_GROUPS = listOf(
+    PetActionGroup(
+        "互动",
+        listOf(
+            PetQuickAction("戳一下", "poke"),
+            PetQuickAction("摸摸头", "head_pat"),
+            PetQuickAction("摇尾巴", "tail"),
+            PetQuickAction("拽一下", "dragging"),
+        ),
+    ),
+    PetActionGroup(
+        "小动作",
+        listOf(
+            PetQuickAction("伸懒腰", "idle_stretch"),
+            PetQuickAction("打哈欠", "idle_yawn"),
+            PetQuickAction("发会儿呆", "idle"),
+        ),
+    ),
+    PetActionGroup(
+        "干活",
+        listOf(
+            PetQuickAction("思考", "thinking"),
+            PetQuickAction("干活", "working"),
+            PetQuickAction("找东西", "working_search"),
+            PetQuickAction("敲命令", "working_command"),
+            PetQuickAction("等待", "waiting"),
+        ),
+    ),
+    PetActionGroup(
+        "结果",
+        listOf(
+            PetQuickAction("成功", "success"),
+            PetQuickAction("出错", "error"),
+            PetQuickAction("吃东西", "eat_token"),
+        ),
+    ),
+)
+
+/**
+ * Lines for 碎碎念. Deliberately short and mundane: the desktop pet's whisper is
+ * small talk, not a notification — anything that sounds like a status report
+ * would be mistaken for the host talking.
+ */
+val PET_QUIPS = listOf(
+    "主人今天也在忙呀～",
+    "记得喝水，别一直盯着屏幕。",
+    "这条命令我看懂了，但是不想说。",
+    "摸鱼十分钟，效率翻一倍。",
+    "要不要先跑一遍测试？",
+    "我在这儿替你看着呢。",
+    "尾巴摇累了，歇一会儿。",
+    "有 bug 也不慌，先睡一觉。",
+    "这个报错我见过，重启试试。",
+    "你忙你的，我不吵。",
 )

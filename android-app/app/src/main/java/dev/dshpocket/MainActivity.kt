@@ -15,6 +15,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -33,6 +38,7 @@ import dev.dshpocket.core.Phase
 import dev.dshpocket.core.UiState
 import dev.dshpocket.pet.PetOverlay
 import dev.dshpocket.pet.PetOverlayService
+import dev.dshpocket.pet.PetQuickSettings
 import dev.dshpocket.service.ConnectionService
 import dev.dshpocket.ui.ChatScreen
 import dev.dshpocket.ui.DshPocketTheme
@@ -311,12 +317,14 @@ private fun PocketRoot(
     Box(Modifier.fillMaxSize()) {
         PocketContent(state, overlayGranted, onPetFloating, onPetRoam)
         // 宠物浮在整个界面之上：它不属于任何一屏，会话列表、聊天、设置都要能看到它。
-        // 配对页不显示——那时用户还没连上任何东西，一只宠物只会分散注意力。
         //
         // 悬浮窗模式开着时这里不再画：那一只盖在所有应用上面，包括这个 Activity，
         // 再画一只就是同一个位置两只重叠的宠物。
+        //
+        // 不再要求已配对：素材在 APK 里，一只待机的宠物和"有没有连上电脑"无关。
+        // 配对页也画 —— 首次运行就看到它在角落里，比读一段说明更直接。
         val floating = state.settings.petFloating && overlayGranted
-        if (state.paired != null && !floating) {
+        if (state.settings.petEnabled && !floating) {
             PetOverlay(
                 state = state,
                 modifier = Modifier
@@ -336,12 +344,40 @@ private fun PocketContent(
     onPetRoam: (Boolean) -> Unit,
 ) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showPetSettings by rememberSaveable { mutableStateOf(false) }
 
     if (state.paired == null) {
-        PairScreen(
-            connection = state.connection,
-            onPair = { app().viewModel.pairWithInvite(it) },
-        )
+        Box(Modifier.fillMaxSize()) {
+            PairScreen(
+                connection = state.connection,
+                onPair = { app().viewModel.pairWithInvite(it) },
+            )
+            // 配对前也能打开桌宠：宠物不依赖电脑，把开关锁在配对之后只是入口问题。
+            IconButton(
+                onClick = { showPetSettings = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(end = 6.dp, top = 4.dp),
+            ) {
+                Icon(Icons.Filled.Settings, contentDescription = "桌宠设置")
+            }
+        }
+        if (showPetSettings) {
+            BackHandler { showPetSettings = false }
+            PetQuickSettings(
+                enabled = state.settings.petEnabled,
+                floating = state.settings.petFloating,
+                roam = state.settings.petRoam,
+                size = state.settings.petSize,
+                overlayGranted = overlayGranted,
+                onEnabled = app().viewModel::setPetEnabled,
+                onFloating = onPetFloating,
+                onRoam = onPetRoam,
+                onSize = app().viewModel::setPetSize,
+                onDismiss = { showPetSettings = false },
+            )
+        }
         return
     }
 

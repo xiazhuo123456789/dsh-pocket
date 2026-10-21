@@ -100,6 +100,7 @@ class PetOverlayService : Service() {
     private var roaming = false
 
     private val reaction = mutableStateOf<PetReaction?>(null)
+    private val say = mutableStateOf<PetSay?>(null)
 
     private val state: kotlinx.coroutines.flow.StateFlow<UiState>
         get() = PocketApp.instance.viewModel.state
@@ -140,6 +141,7 @@ class PetOverlayService : Service() {
                     state = snapshot,
                     sizeDp = snapshot.settings.petSize,
                     externalReaction = reaction.value,
+                    externalSay = say.value,
                     // A tap opens the action sheet; dragging is handled by the
                     // gesture recogniser inside PetSprite.
                     onTap = { openMenu() },
@@ -232,14 +234,14 @@ class PetOverlayService : Service() {
     // -------------------------------------------------------------------- roaming
 
     /**
-     * Wanders to a random visible spot every 12–26 s, but only when the pet is
-     * idle: a turn in flight owns the sprite, and moving the window mid-turn would
-     * read as "it ran away" rather than "it is working".
+     * Wanders every 10–22 s, but only when the pet is idle: a turn in flight owns
+     * the sprite, and moving the window mid-turn would read as "it ran away"
+     * rather than "it is working".
      */
     private fun startRoaming() {
         scope.launch {
             while (isActive) {
-                delay(Random.nextLong(12_000, 26_000))
+                delay(Random.nextLong(10_000, 22_000))
                 val snapshot = state.value
                 if (dragging || menuOpen || roaming) continue
                 if (!snapshot.settings.petRoam) continue
@@ -249,30 +251,51 @@ class PetOverlayService : Service() {
         }
     }
 
+    /**
+     * Bounces around the screen instead of walking to one random point.
+     *
+     * 桌面端的宠物是"甩出去会撞墙反弹"的，只做一次 smoothstep 位移读起来像传送：
+     * 它到了某个点就停住，也不看边界。这里给一个随机方向的速度，每帧撞到边就把
+     * 该轴的速度取反、位置贴边 —— 于是它会在屏幕上折返跑，撞够次数自己停。
+     */
     private suspend fun roamOnce() {
         val bounds = screenBounds()
         val inset = dpToPx(8)
         val maxX = (bounds.width() - petWidth - inset).coerceAtLeast(inset)
         val maxY = (bounds.height() - petHeight - inset).coerceAtLeast(inset)
 
-        val fromX = x
-        val fromY = y
-        val toX = Random.nextInt(inset, maxX + 1)
-        val toY = Random.nextInt(inset, maxY + 1)
+        var px = x.toFloat()
+        var py = y.toFloat()
+        val angle = Random.nextDouble(0.0, Math.PI * 2)
+        val speed = Random.nextDouble(2.0, 4.0).toFloat()
+        var vx = (Math.cos(angle) * speed).toFloat()
+        var vy = (Math.sin(angle) * speed).toFloat()
 
         roaming = true
         try {
-            val steps = 30
-            for (step in 1..steps) {
-                if (dragging || menuOpen) break
-                val t = step.toFloat() / steps
-                // Smoothstep: starts and stops gently, which is what makes it read
-                // as walking instead of teleporting.
-                val eased = t * t * (3f - 2f * t)
-                x = (fromX + (toX - fromX) * eased).roundToInt()
-                y = (fromY + (toY - fromY) * eased).roundToInt()
+            // 30–70 帧 ≈ 1.5–3.5 秒：够看到它跑起来和弹一次，又不至于一直动。
+            repeat(Random.nextInt(30, 70)) {
+                if (dragging || menuOpen) return
+                px += vx
+                py += vy
+                if (px <= inset) {
+                    px = inset.toFloat()
+                    vx = kotlin.math.abs(vx)
+                } else if (px >= maxX) {
+                    px = maxX.toFloat()
+                    vx = -kotlin.math.abs(vx)
+                }
+                if (py <= inset) {
+                    py = inset.toFloat()
+                    vy = kotlin.math.abs(vy)
+                } else if (py >= maxY) {
+                    py = maxY.toFloat()
+                    vy = -kotlin.math.abs(vy)
+                }
+                x = px.roundToInt()
+                y = py.roundToInt()
                 applyPosition()
-                delay(28)
+                delay(16)
             }
         } finally {
             roaming = false
@@ -295,6 +318,11 @@ class PetOverlayService : Service() {
                     onReaction = { clip ->
                         val next = (reaction.value?.token ?: 0) + 1
                         reaction.value = PetReaction(clip, next)
+                        closeMenu()
+                    },
+                    onSay = { line ->
+                        val next = (say.value?.token ?: 0) + 1
+                        say.value = PetSay(line, next)
                         closeMenu()
                     },
                     onRoamChange = { PocketApp.instance.viewModel.setPetRoam(it) },

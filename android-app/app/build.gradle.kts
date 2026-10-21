@@ -58,8 +58,14 @@ android {
         //   * 修"开关点了自己滑回灰色"：设置镜像链改成出错按秒重试、DataStore 加
         //     损坏自愈（文件坏了就换空设置，而不是从此读不到任何值）；每个开关
         //     先改内存快照再落盘，落盘失败会把磁盘真值拉回来，不再看着像按钮坏了。
-        versionCode = 16
-        versionName = "0.15.0"
+        // 0.16.0：
+        //   * 断线不再丢宠物：取消配对过去会整块重置 UiState，把"显示宠物"一起打回
+        //     默认值 —— 屏幕上的宠物随之消失。设置是本机的，与连哪台电脑无关。
+        //   * 配对页右上角加了桌宠设置的入口：素材在 APK 里，不连电脑也能先开。
+        //   * 菜单按桌面端的分组来（互动 / 小动作 / 干活 / 结果），并补上"碎碎念"
+        //     气泡；漫步改成带速度的折返跑，撞到屏幕边会弹回来。
+        versionCode = 17
+        versionName = "0.16.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

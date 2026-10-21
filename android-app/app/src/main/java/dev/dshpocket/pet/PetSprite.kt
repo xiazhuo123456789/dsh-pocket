@@ -4,7 +4,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -13,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
@@ -32,6 +40,9 @@ import kotlin.random.Random
  * animation instead of being swallowed as "same value as before".
  */
 data class PetReaction(val clip: String, val token: Int)
+
+/** A one-shot speech bubble, same token trick as [PetReaction]. */
+data class PetSay(val text: String, val token: Int)
 
 /**
  * The pet sprite itself — one animation loop plus the interaction layer.
@@ -60,6 +71,7 @@ fun PetSprite(
     sizeDp: Int,
     modifier: Modifier = Modifier,
     externalReaction: PetReaction? = null,
+    externalSay: PetSay? = null,
     onTap: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
     onDrag: ((dx: Float, dy: Float) -> Unit)? = null,
@@ -72,6 +84,7 @@ fun PetSprite(
     val scope = rememberCoroutineScope()
 
     var reaction by remember { mutableStateOf<PetReaction?>(null) }
+    var bubble by remember { mutableStateOf<String?>(null) }
     val base = petClipFor(state)
 
     fun react(clip: String) {
@@ -93,6 +106,15 @@ fun PetSprite(
             ChatState.Status.Failed, ChatState.Status.Cancelled -> react("error")
             else -> Unit
         }
+    }
+
+    // A speech bubble pushed in by the host menu ("碎碎念"), held for a few
+    // seconds. The token comparison keeps a stale timer from clearing a newer line.
+    LaunchedEffect(externalSay?.token) {
+        val incoming = externalSay ?: return@LaunchedEffect
+        bubble = incoming.text
+        delay(4_500)
+        if (externalSay.token == incoming.token) bubble = null
     }
 
     // A reaction runs for exactly one pass of its own clip, then releases the pet
@@ -126,10 +148,31 @@ fun PetSprite(
     val height = (sizeDp * assets.aspect).dp
 
     if (bitmap != null) {
-        Image(
+        Column(
+            modifier = modifier,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            bubble?.let { line ->
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 4.dp,
+                    modifier = Modifier
+                        .widthIn(max = 200.dp)
+                        .padding(bottom = 6.dp),
+                ) {
+                    Text(
+                        text = line,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            Image(
             bitmap = bitmap!!,
             contentDescription = stringResource(dev.dshpocket.R.string.pet_content_description),
-            modifier = modifier
+            modifier = Modifier
                 .size(width, height)
                 .alpha(if (state.connection.isConnected) 1f else 0.92f)
                 .then(
@@ -166,6 +209,7 @@ fun PetSprite(
                         }
                     }
                 ),
-        )
+            )
+        }
     }
 }

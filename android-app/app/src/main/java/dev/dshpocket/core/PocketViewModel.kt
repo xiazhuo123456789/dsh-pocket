@@ -440,7 +440,10 @@ class PocketViewModel(
     fun unpair() {
         disconnectInternal()
         credentials.clear()
-        _state.value = UiState()
+        // 配对信息清掉，但**设置**留着：宠物开关、字号、通知偏好是本机的，和
+        // "连的是哪台电脑"无关。整块 `UiState()` 会把 petEnabled 一起打回默认值，
+        // 于是用户一断线，屏幕上的宠物就跟着消失 —— 那正是他抱怨的"断开就没了"。
+        _state.value = UiState(settings = _state.value.settings)
         scope.launch { settings.setLastSession(null) }
     }
 
