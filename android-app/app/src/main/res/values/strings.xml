@@ -82,4 +82,13 @@
     <string name="pet_enable">显示桌宠</string>
     <string name="pet_enable_subtitle">在本应用内漂浮一只小宠物；不连接电脑时也会待机和玩耍</string>
     <string name="pet_size">大小</string>
+    <string name="pet_floating">悬浮在其他应用上</string>
+    <string name="pet_floating_subtitle">退出本应用后仍显示在屏幕上；可以拖动，点一下打开动作菜单</string>
+    <string name="pet_floating_needs_permission">需要「显示在其他应用上层」权限</string>
+    <string name="pet_roam">自动漫步</string>
+    <string name="pet_roam_subtitle">待机时自己在屏幕上走一小段，停下来做个小动作</string>
+    <string name="pet_notif_channel">悬浮桌宠</string>
+    <string name="pet_notif_channel_desc">悬浮桌宠运行时显示一条常驻通知（系统要求，可最小化）</string>
+    <string name="pet_notif_title">大肥鱼在屏幕上</string>
+    <string name="pet_notif_text">点一下它，可以换动作、调大小、关掉悬浮</string>
 </resources>

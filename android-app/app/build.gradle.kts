@@ -39,8 +39,15 @@ android {
         //     设置页新增「桌宠」一节：开关 + 大小滑块。
         //   * 代价说清楚：APK 从 24.2 MB 涨到约 44 MB，多出来的全是美术素材。
         //     release 开资源收缩也压不掉它——那不是无用资源，是功能本身。
-        versionCode = 13
-        versionName = "0.12.0"
+        // 0.13.0：
+        //   * 桌宠从"应用内的一张贴图"变成真正能拖、能点、能走出应用的角色：
+        //     长按/拖动移动位置，点一下弹出动作菜单（十四个动作、大小、漫步、
+        //     回到原位、打开应用、关闭悬浮）。
+        //   * 「悬浮在其他应用上」：宠物挂到 WindowManager，退出本应用、回到桌面、
+        //     切到别的 App 都还在；待机时自己走一小段。这需要一项 special access
+        //     （SYSTEM_ALERT_WINDOW），用常驻前台服务承载，划掉任务也不退出。
+        versionCode = 14
+        versionName = "0.13.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

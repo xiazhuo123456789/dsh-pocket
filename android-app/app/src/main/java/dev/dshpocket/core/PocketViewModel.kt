@@ -1762,6 +1762,18 @@ class PocketViewModel(
     fun setPetSize(v: Int) = scope.launch { settings.setPetSize(v) }
 
     /**
+     * 开关「悬浮在其他应用上」。
+     *
+     * 这里只写偏好，真正判断 `SYSTEM_ALERT_WINDOW` 是否已授权、以及启动/停止
+     * [dev.dshpocket.pet.PetOverlayService] 的是界面层——ViewModel 拿不到
+     * Activity 的结果回调，也不该持有它。
+     */
+    fun setPetFloating(v: Boolean) = scope.launch { settings.setPetFloating(v) }
+
+    /** 待机时是否自己走动。 */
+    fun setPetRoam(v: Boolean) = scope.launch { settings.setPetRoam(v) }
+
+    /**
      * Collapse a throwable into something worth showing a user.
      *
      * The two cases are genuinely different and the user needs to tell them apart:

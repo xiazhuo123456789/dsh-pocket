@@ -82,6 +82,9 @@ fun SettingsScreen(
     onSimplifiedChinese: (Boolean) -> Unit,
     onPetEnabled: (Boolean) -> Unit,
     onPetSize: (Int) -> Unit,
+    onPetFloating: (Boolean) -> Unit,
+    overlayGranted: Boolean,
+    onPetRoam: (Boolean) -> Unit,
     onReconnect: () -> Unit,
     onUnpair: () -> Unit,
     onChangeAddress: (String) -> Unit,
@@ -327,6 +330,26 @@ fun SettingsScreen(
                 PetSizeRow(
                     size = settings.petSize,
                     onSizeChange = onPetSize,
+                )
+                // 悬浮窗是"看得见"的差异点：宠物从应用里走出来，盖在桌面和其他
+                // 应用上面。副标题必须点明它要一项系统权限，并且离开本应用后依然
+                // 显示——否则用户会以为它和上面那个开关是同一件事。
+                SwitchRow(
+                    title = "悬浮在其他应用上",
+                    subtitle = if (overlayGranted) {
+                        "退出本应用、回到桌面也会显示；可以拖动、点一下有动作菜单"
+                    } else {
+                        "需要「显示在其他应用上层」权限，打开后会跳到系统设置授权"
+                    },
+                    checked = settings.petFloating,
+                    onCheckedChange = onPetFloating,
+                )
+                // 自己走动只在待机时发生；任务在跑的时候它在做对应动作，不该乱跑。
+                SwitchRow(
+                    title = "自动漫步",
+                    subtitle = "待机时偶尔自己在屏幕上走一小段，停下时做小动作",
+                    checked = settings.petRoam,
+                    onCheckedChange = onPetRoam,
                 )
             }
 

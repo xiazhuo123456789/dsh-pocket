@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -20,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,6 +32,7 @@ import dev.dshpocket.core.ChatState.Status as ChatStatus
 import dev.dshpocket.core.Phase
 import dev.dshpocket.core.UiState
 import dev.dshpocket.pet.PetOverlay
+import dev.dshpocket.pet.PetOverlayService
 import dev.dshpocket.service.ConnectionService
 import dev.dshpocket.ui.ChatScreen
 import dev.dshpocket.ui.DshPocketTheme
@@ -67,6 +68,19 @@ import dev.dshpocket.ui.SettingsScreen
 class MainActivity : ComponentActivity() {
 
     private val app: PocketApp get() = PocketApp.instance
+
+    /**
+     * Whether the system has granted "display over other apps".
+     *
+     * Read on every `onResume` because the only way to grant it is to leave for a
+     * system settings page and come back. Compose state, so flipping it
+     * recomposes the tree and starts/stops the overlay service without a manual
+     * refresh.
+     */
+    private var overlayGranted by mutableStateOf(false)
+
+    /** True when the user flipped the switch and we sent them to grant it. */
+    private var awaitingOverlayGrant = false
 
     /**
      * Registered as a field so the launcher survives a configuration change.
@@ -112,11 +126,24 @@ class MainActivity : ComponentActivity() {
                     if (busy) ConnectionService.start(this@MainActivity)
                     else ConnectionService.stop(this@MainActivity)
                 }
+                // The floating pet is its own service because it must outlive this
+                // Activity; `floating` folds in the permission so a revoked grant
+                // simply stops it instead of leaving a service that cannot draw.
+                val floating = state.settings.petFloating && overlayGranted
+                LaunchedEffect(floating) {
+                    if (floating) PetOverlayService.start(this@MainActivity)
+                    else PetOverlayService.stop(this@MainActivity)
+                }
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    PocketRoot(state)
+                    PocketRoot(
+                        state = state,
+                        overlayGranted = overlayGranted,
+                        onPetFloating = { requestPetFloating(it) },
+                        onPetRoam = app().viewModel::setPetRoam,
+                    )
                 }
             }
         }
@@ -182,6 +209,46 @@ class MainActivity : ComponentActivity() {
             app.viewModel.reconnect()
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // The only way to grant overlay access is a system settings page, so the
+        // grant can change on every resume. Reading it here (rather than once in
+        // `onCreate`) is what makes "went to grant it, came back" work.
+        val granted = Settings.canDrawOverlays(this)
+        overlayGranted = granted
+        if (awaitingOverlayGrant && granted) {
+            awaitingOverlayGrant = false
+            app.viewModel.setPetFloating(true)
+        }
+    }
+
+    /**
+     * Turn the floating pet on or off, asking for overlay access first if needed.
+     *
+     * The setting is only written once access exists: storing `true` while the
+     * permission is missing would show a switch that claims the pet is floating
+     * while nothing is on screen.
+     */
+    private fun requestPetFloating(want: Boolean) {
+        if (!want) {
+            app.viewModel.setPetFloating(false)
+            return
+        }
+        if (Settings.canDrawOverlays(this)) {
+            app.viewModel.setPetFloating(true)
+            return
+        }
+        awaitingOverlayGrant = true
+        val intent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:$packageName"),
+        )
+        // Some vendors ship a build without the per-package page; fall back to the
+        // generic list rather than crashing on ActivityNotFound.
+        runCatching { startActivity(intent) }
+            .onFailure { runCatching { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) } }
+    }
 }
 
 /**
@@ -217,12 +284,21 @@ class MainActivity : ComponentActivity() {
  * consequence, and `rememberSaveable` keeps it across rotation.
  */
 @Composable
-private fun PocketRoot(state: UiState) {
+private fun PocketRoot(
+    state: UiState,
+    overlayGranted: Boolean,
+    onPetFloating: (Boolean) -> Unit,
+    onPetRoam: (Boolean) -> Unit,
+) {
     Box(Modifier.fillMaxSize()) {
-        PocketContent(state)
+        PocketContent(state, overlayGranted, onPetFloating, onPetRoam)
         // 宠物浮在整个界面之上：它不属于任何一屏，会话列表、聊天、设置都要能看到它。
         // 配对页不显示——那时用户还没连上任何东西，一只宠物只会分散注意力。
-        if (state.paired != null) {
+        //
+        // 悬浮窗模式开着时这里不再画：那一只盖在所有应用上面，包括这个 Activity，
+        // 再画一只就是同一个位置两只重叠的宠物。
+        val floating = state.settings.petFloating && overlayGranted
+        if (state.paired != null && !floating) {
             PetOverlay(
                 state = state,
                 modifier = Modifier
@@ -235,7 +311,12 @@ private fun PocketRoot(state: UiState) {
 }
 
 @Composable
-private fun PocketContent(state: UiState) {
+private fun PocketContent(
+    state: UiState,
+    overlayGranted: Boolean,
+    onPetFloating: (Boolean) -> Unit,
+    onPetRoam: (Boolean) -> Unit,
+) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
     if (state.paired == null) {
@@ -262,6 +343,9 @@ private fun PocketContent(state: UiState) {
             onSimplifiedChinese = app().viewModel::setSimplifiedChinese,
             onPetEnabled = app().viewModel::setPetEnabled,
             onPetSize = app().viewModel::setPetSize,
+            onPetFloating = onPetFloating,
+            overlayGranted = overlayGranted,
+            onPetRoam = onPetRoam,
             onReconnect = app().viewModel::reconnect,
             onUnpair = {
                 showSettings = false

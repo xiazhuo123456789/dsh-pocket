@@ -9,6 +9,19 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!--
+      悬浮桌宠：宠物窗口挂在 WindowManager 上，必须盖在别的应用上面才不会在切
+      后台时消失。这是一项 special access（用户要手动在系统设置里打开），
+      不是普通运行时权限——所以代码里用 Settings.canDrawOverlays 判断，
+      而不是 requestPermissions。
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!--
+      API 34 起每个前台服务都必须申报类型。悬浮宠物没有更贴切的类别，
+      用 specialUse 并在 service 里写明 subtype，否则 startForeground 会抛异常。
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!--
       Camera is used for exactly one thing: scanning the pairing QR with the live
       camera on the first-run screen. It is `required="false"` on the feature and
       requested at runtime only when "扫一扫" is tapped, so a phone without a
@@ -54,6 +67,20 @@
             android:name=".service.ConnectionService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!--
+          stopWithTask="false" 是关键：用户从最近任务里划掉应用时服务要继续活着，
+          宠物不能跟着一起消失——那正是"切到别的应用也要显示"这条需求的全部意义。
+        -->
+        <service
+            android:name=".pet.PetOverlayService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="floating desktop pet overlay" />
+        </service>
 
         <receiver
             android:name=".notify.ApprovalActionReceiver"

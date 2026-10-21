@@ -64,6 +64,16 @@ data class AppSettings(
     val petEnabled: Boolean = false,
     /** 桌宠宽度（dp）。高度按素材宽高比换算，所以只需存一个数。 */
     val petSize: Int = 132,
+    /**
+     * 是否把宠物做成悬浮窗，盖在其他应用上面。
+     *
+     * 和 [petEnabled] 分开是因为它需要一项系统权限（`SYSTEM_ALERT_WINDOW`），
+     * 而且它改变了显示位置：开着悬浮窗时应用内不再重复画一只，否则同一个
+     * 屏幕上会出现两只一模一样的宠物。
+     */
+    val petFloating: Boolean = false,
+    /** 待机时是否自己在屏幕上走动。 */
+    val petRoam: Boolean = true,
 )
 
 /**
@@ -91,6 +101,8 @@ class SettingsStore(private val context: Context) {
             recentAddresses = p[KEY_RECENT_ADDRESSES]?.split("\n")?.filter { it.isNotBlank() } ?: emptyList(),
             petEnabled = p[KEY_PET_ENABLED] ?: false,
             petSize = p[KEY_PET_SIZE] ?: 132,
+            petFloating = p[KEY_PET_FLOATING] ?: false,
+            petRoam = p[KEY_PET_ROAM] ?: true,
         )
     }
 
@@ -101,6 +113,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setSimplifiedChinese(value: Boolean) = put(KEY_SIMPLIFIED_CHINESE, value)
 
     suspend fun setPetEnabled(value: Boolean) = put(KEY_PET_ENABLED, value)
+
+    suspend fun setPetFloating(value: Boolean) = put(KEY_PET_FLOATING, value)
+
+    suspend fun setPetRoam(value: Boolean) = put(KEY_PET_ROAM, value)
 
     /**
      * 桌宠宽度，夹在 [PET_MIN_SIZE]–[PET_MAX_SIZE] 之间。
@@ -154,5 +170,7 @@ class SettingsStore(private val context: Context) {
         val KEY_RECENT_ADDRESSES = stringPreferencesKey("recent_addresses")
         val KEY_PET_ENABLED = booleanPreferencesKey("pet_enabled")
         val KEY_PET_SIZE = intPreferencesKey("pet_size")
+        val KEY_PET_FLOATING = booleanPreferencesKey("pet_floating")
+        val KEY_PET_ROAM = booleanPreferencesKey("pet_roam")
     }
 }
