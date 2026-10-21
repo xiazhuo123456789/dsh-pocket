@@ -425,8 +425,15 @@ class PocketViewModel(
         scope.launch { settings.setLastSession(null) }
     }
 
-    /** Retry the stored credential without re-pairing. */
+    /**
+     * Retry the stored credential without re-pairing.
+     *
+     * 幂等：`onStart` 每次回到前台都会调它，而"正在连接"或"已经有一条重连链在等"
+     * 的时候再开一代只会白关掉刚建好的 socket —— 那正是用户看到的"时不时断一下"。
+     */
     fun reconnect() {
+        if (reconnectJob != null) return
+        if (_state.value.connection.phase == Phase.Connecting) return
         credentials.load()?.let(::connect)
     }
 

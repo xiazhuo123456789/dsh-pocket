@@ -267,6 +267,18 @@ class GatewayClient(
 
     @Volatile private var socket: WebSocket? = null
 
+    /**
+     * True once [close] has been called on purpose.
+     *
+     * Closing the socket from our side still makes OkHttp deliver `onClosed(1000)`
+     * — which looks exactly like the Host hanging up. Reporting that as
+     * "the desktop closed the channel" is a lie the user sees as a spurious
+     * "连接失败 / 1000 client closing" every time the connection is deliberately
+     * replaced (reconnect, address change, unpair). The flag is what lets the
+     * listener tell "we hung up" apart from "the line dropped".
+     */
+    @Volatile private var closedByUs = false
+
     @Volatile private var muxReady = false
 
     /**
@@ -471,6 +483,9 @@ class GatewayClient(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             muxReady = false
             socket = null
+            // We asked for this teardown; the caller already knows and is not
+            // waiting for a "connection lost" card.
+            if (closedByUs) return
             val failure = RemoteError(
                 code = "gateway/mux-failed",
                 // `HTTP 0` 这个数字很误导：它不是"服务器返回了 0"，而是**根本没
@@ -487,6 +502,10 @@ class GatewayClient(
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             muxReady = false
             socket = null
+            // 1000 + "client closing" is our own close frame coming back. Treating
+            // it as a carrier loss was the bug behind the recurring "断连" banner:
+            // every reconnect silently turned itself into a reported failure.
+            if (closedByUs) return
             val failure = RemoteError(
                 "gateway/mux-closed",
                 "与电脑的实时通道已关闭（$code${if (reason.isNotBlank()) " $reason" else ""}）",
@@ -519,6 +538,7 @@ class GatewayClient(
      * twice, or on a never-connected client, is not an error.
      */
     fun close() {
+        closedByUs = true
         socket?.close(1000, "client closing")
         socket = null
         muxReady = false

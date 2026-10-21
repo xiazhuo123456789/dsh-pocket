@@ -46,8 +46,16 @@ android {
         //   * 「悬浮在其他应用上」：宠物挂到 WindowManager，退出本应用、回到桌面、
         //     切到别的 App 都还在；待机时自己走一小段。这需要一项 special access
         //     （SYSTEM_ALERT_WINDOW），用常驻前台服务承载，划掉任务也不退出。
-        versionCode = 14
-        versionName = "0.13.0"
+        // 0.14.0：
+        //   * 修掉"时不时断一下"：自己主动关掉的 WebSocket（1000 client closing）
+        //     曾被当成"电脑那端断了"上报，于是每次重连都变成一次失败；现在主动
+        //     关闭不再触发失败横幅与退避重连。
+        //   * 重连幂等：正在连接或已有一条重试链在等时，`onStart` 再调 reconnect
+        //     不会另开一代把刚建好的 socket 关掉。
+        //   * 「等待系统授权」跨 Activity 重建保存：授权回来开关会自己打开，不再
+        //     需要用户再点一次；悬浮窗加不上时开关也会退回关闭，不再假装成功。
+        versionCode = 15
+        versionName = "0.14.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

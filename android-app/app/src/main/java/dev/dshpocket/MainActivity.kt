@@ -92,6 +92,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        awaitingOverlayGrant = savedInstanceState?.getBoolean(KEY_AWAITING_OVERLAY) == true
         askForNotificationPermission()
 
         // The pairing QR/deep link carries the whole invite URL in `pair`.
@@ -224,6 +225,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * 记住「用户正等着系统授权」这件事，跨 Activity 重建。
+     *
+     * 只放在字段里是不够的：打开系统设置页时，低内存机型很可能把本 Activity
+     * 回收，回来时字段已复位成 false —— 用户明明授权了，开关却不会自己打开，
+     * 看起来就是「这个按钮开不了」。存进 saved state 就不会丢。
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_AWAITING_OVERLAY, awaitingOverlayGrant)
+    }
+
+    /**
      * Turn the floating pet on or off, asking for overlay access first if needed.
      *
      * The setting is only written once access exists: storing `true` while the
@@ -248,6 +261,11 @@ class MainActivity : ComponentActivity() {
         // generic list rather than crashing on ActivityNotFound.
         runCatching { startActivity(intent) }
             .onFailure { runCatching { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)) } }
+    }
+
+    private companion object {
+        /** Saved-state key for [awaitingOverlayGrant]. */
+        const val KEY_AWAITING_OVERLAY = "awaiting_overlay_grant"
     }
 }
 

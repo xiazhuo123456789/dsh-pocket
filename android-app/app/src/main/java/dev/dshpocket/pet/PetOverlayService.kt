@@ -175,7 +175,10 @@ class PetOverlayService : Service() {
             .onFailure {
                 // Losing SYSTEM_ALERT_WINDOW between the check and this moment is
                 // possible (the user can revoke it from the same settings page).
-                // A window that cannot be added must not leave a stray service.
+                // A window that cannot be added must not leave a stray service —
+                // and it must not leave the switch claiming "on" either, or the
+                // only feedback the user gets is a toggle that does nothing.
+                runCatching { PocketApp.instance.viewModel.setPetFloating(false) }
                 stopSelf()
                 return
             }

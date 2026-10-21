@@ -1,5 +1,26 @@
 # 构建产物 / Build artifacts
 
+## v0.14.0
+
+| 文件 / File | 大小 / Size | SHA-256 |
+| --- | --- | --- |
+| `dsh-pocket-0.14.0.apk` | 44.26 MiB (46,409,718 B) | `5549ed51ac00df21bced61e65372a180dd9f84cfbc4a3e0df11438af6e89619e` |
+
+这一版只修连接，不碰宠物素材：
+
+- **「时不时断一下」的根因**：我们自己主动关掉 WebSocket 时，OkHttp 会回调
+  `onClosed(1000, "client closing")`，旧代码把它当成"电脑那端断了"上报，于是每次
+  重连都变成一次失败横幅加一次退避重连。现在主动关闭不再被误报。
+- **重连幂等**：`onStart` 每次回前台都会调 `reconnect()`，而"正在连接中"也被算作
+  "没连上"，于是又开一代、把刚建好的 socket 关掉。现在正在连接或已有重试在排队时
+  直接返回。
+- **系统授权回来的开关**：「等待授权」标记改为跟着 saved state 走，Activity 被低内存
+  回收后授权回来也能自己打开开关；悬浮窗加不上时开关会退回关闭，不再假装成功。
+
+体积与 v0.13.0 相同（46,409,718 B），dex 只多 364 B：改的都是连接层的几行判断。
+
+安装后到「设置 → 关于 → 版本」核对 `0.14.0 (15)`。
+
 ## v0.13.0
 
 | 文件 / File | 大小 / Size | SHA-256 |
@@ -89,7 +110,7 @@ apksigner verify --print-certs dsh-pocket-0.10.0.apk
 ## 安装 / Install
 
 ```bash
-adb install -r dsh-pocket-0.13.0.apk
+adb install -r dsh-pocket-0.14.0.apk
 ```
 
 或者把 APK 传到手机上点击安装（需要在系统设置里允许「安装未知来源应用」）。
@@ -100,7 +121,7 @@ from an unknown source).
 The first launch lands on the pairing screen. The phone and the desktop need to share a
 network, or the desktop needs to expose a public tunnel.
 
-装好后到「设置 → 关于 → 版本」核对 `0.13.0 (14)`。如果显示 `0.12.0 (13)` 或更早，说明装的是旧包（旧包没有悬浮窗与动作菜单）。
+装好后到「设置 → 关于 → 版本」核对 `0.14.0 (15)`。如果显示 `0.13.0 (14)` 或更早，说明装的是旧包（旧包要么还会把主动断开误报成掉线，要么没有悬浮窗与动作菜单）。
 
 ---
 
