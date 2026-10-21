@@ -1,5 +1,21 @@
 # 构建产物 / Build artifacts
 
+## v0.15.0
+
+| 文件 / File | 大小 / Size | SHA-256 |
+| --- | --- | --- |
+| `dsh-pocket-0.15.0.apk` | 44.26 MiB (46,409,718 B) | `f8a04f780b81cfb80dad82f217b7cb1dfff855ed823c123843eef0922713a549` |
+
+修「设置里的开关点一下就自己滑回灰色」：
+
+- **读设置的链不会再死**：之前是一条 `collect`，DataStore 抛一次异常（文件损坏、
+  被杀进程时写了一半）它就静默结束，而写入仍然成功 —— 界面从此停在默认值，每个
+  开关都"点了滑回去"。现在出错按秒重试。
+- **文件损坏自愈**：`preferencesDataStore` 加了 `ReplaceFileCorruptionHandler`，坏文件
+  换成空设置，而不是永久抛 `CorruptionException`。
+- **先改内存再落盘**：开关立刻到位，不等 DataStore 走完"序列化 → 落文件 → 重新解析"；
+  落盘失败会把磁盘真值拉回来并记日志，不再假装成功。
+
 ## v0.14.0
 
 | 文件 / File | 大小 / Size | SHA-256 |
@@ -110,7 +126,7 @@ apksigner verify --print-certs dsh-pocket-0.10.0.apk
 ## 安装 / Install
 
 ```bash
-adb install -r dsh-pocket-0.14.0.apk
+adb install -r dsh-pocket-0.15.0.apk
 ```
 
 或者把 APK 传到手机上点击安装（需要在系统设置里允许「安装未知来源应用」）。
@@ -121,7 +137,7 @@ from an unknown source).
 The first launch lands on the pairing screen. The phone and the desktop need to share a
 network, or the desktop needs to expose a public tunnel.
 
-装好后到「设置 → 关于 → 版本」核对 `0.14.0 (15)`。如果显示 `0.13.0 (14)` 或更早，说明装的是旧包（旧包要么还会把主动断开误报成掉线，要么没有悬浮窗与动作菜单）。
+装好后到「设置 → 关于 → 版本」核对 `0.15.0 (16)`。如果显示 `0.14.0 (15)` 或更早，说明装的是旧包（旧包的设置开关可能点不动，或者还会把主动断开误报成掉线）。
 
 ---
 

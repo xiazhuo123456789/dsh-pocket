@@ -1,9 +1,11 @@
 package dev.dshpocket.data
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -17,8 +19,16 @@ import kotlinx.coroutines.flow.map
  * DataStore requires exactly one instance per file per process; declaring it as a
  * top-level delegate is what guarantees that. Constructing `DataStore` manually
  * inside a class would throw on the second instantiation.
+ *
+ * 带损坏自愈：设置文件只在**写了一半就被杀进程**这种时刻可能损坏（国产 ROM 很爱
+ * 干这事）。默认行为是永久抛 `CorruptionException`，读取端从此再也拿不到任何值——
+ * 界面上每个开关都停在默认值、点了就滑回去，而写入其实还在成功。这里改成"坏了就
+ * 换成空设置"，代价是偏好回到默认，但设置页重新可用，而不是装死。
  */
-private val Context.settingsDataStore by preferencesDataStore(name = "dsh_pocket_settings")
+private val Context.settingsDataStore by preferencesDataStore(
+    name = "dsh_pocket_settings",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 /**
  * Non-secret user preferences.

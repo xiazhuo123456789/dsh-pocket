@@ -54,8 +54,12 @@ android {
         //     不会另开一代把刚建好的 socket 关掉。
         //   * 「等待系统授权」跨 Activity 重建保存：授权回来开关会自己打开，不再
         //     需要用户再点一次；悬浮窗加不上时开关也会退回关闭，不再假装成功。
-        versionCode = 15
-        versionName = "0.14.0"
+        // 0.15.0：
+        //   * 修"开关点了自己滑回灰色"：设置镜像链改成出错按秒重试、DataStore 加
+        //     损坏自愈（文件坏了就换空设置，而不是从此读不到任何值）；每个开关
+        //     先改内存快照再落盘，落盘失败会把磁盘真值拉回来，不再看着像按钮坏了。
+        versionCode = 16
+        versionName = "0.15.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

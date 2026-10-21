@@ -1,6 +1,8 @@
 package dev.dshpocket.core
 
 import android.content.Context
+import android.util.Log
+import dev.dshpocket.data.AppSettings
 import dev.dshpocket.data.CredentialStore
 import dev.dshpocket.data.PairedDesktop
 import dev.dshpocket.data.SettingsStore
@@ -30,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -190,9 +193,25 @@ class PocketViewModel(
     init {
         // Mirror persisted settings into the snapshot so the UI has exactly one
         // object to read rather than combining flows itself.
+        //
+        // 这个循环必须**不会死**。之前它是 `collect` 一把梭：DataStore 只要抛一次
+        // （文件损坏、磁盘满、被系统杀掉时写了一半），这个协程就静默结束，而
+        // 后面所有写入仍然成功——于是界面上每个开关都停在默认值，用户点一下、
+        // 开关滑回去，看起来像"按钮坏了"。现在出错按秒重试，配合读写层的
+        // 损坏自愈，界面总能重新跟上磁盘。
         scope.launch {
-            settings.settings.collect { s ->
-                _state.update { it.copy(settings = s) }
+            while (true) {
+                try {
+                    settings.settings.collect { s ->
+                        _state.update { it.copy(settings = s) }
+                    }
+                    return@launch
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    Log.w("PocketViewModel", "读取本地设置失败，1 秒后重试", t)
+                    delay(1_000)
+                }
             }
         }
     }
@@ -1743,10 +1762,42 @@ class PocketViewModel(
 
     // ----------------------------------------------------------------- misc
 
-    fun setNotifyOnDone(v: Boolean) = scope.launch { settings.setNotifyOnDone(v) }
-    fun setNotifyOnApproval(v: Boolean) = scope.launch { settings.setNotifyOnApproval(v) }
-    fun setNotifyOnDisconnect(v: Boolean) = scope.launch { settings.setNotifyOnDisconnect(v) }
-    fun setKeepScreenAwake(v: Boolean) = scope.launch { settings.setKeepScreenAwake(v) }
+    /**
+     * 写一条本地设置：先改内存快照，再落盘。
+     *
+     * 为什么不是"只 await 落盘、等 flow 回流"：DataStore 一次写入要序列化、落文件、
+     * 再重新解析，开关的视觉反馈得等这一整圈。慢的那一下用户看到的就是"点开又自己
+     * 滑回灰色"，以为按钮坏了。先改快照让开关立刻到位；flow 之后回流的同一个值不会
+     * 造成任何变化。
+     *
+     * 落盘失败时不装作成功：记日志，并把磁盘上的真值拉回来重新显示。
+     */
+    private fun writeSetting(
+        apply: (AppSettings) -> AppSettings,
+        persist: suspend () -> Unit,
+    ) {
+        _state.update { it.copy(settings = apply(it.settings)) }
+        scope.launch {
+            runCatching { persist() }
+                .onFailure { t ->
+                    Log.w("PocketViewModel", "写入本地设置失败", t)
+                    runCatching { settings.settings.first() }
+                        .onSuccess { s -> _state.update { it.copy(settings = s) } }
+                }
+        }
+    }
+
+    fun setNotifyOnDone(v: Boolean) =
+        writeSetting({ it.copy(notifyOnDone = v) }) { settings.setNotifyOnDone(v) }
+
+    fun setNotifyOnApproval(v: Boolean) =
+        writeSetting({ it.copy(notifyOnApproval = v) }) { settings.setNotifyOnApproval(v) }
+
+    fun setNotifyOnDisconnect(v: Boolean) =
+        writeSetting({ it.copy(notifyOnDisconnect = v) }) { settings.setNotifyOnDisconnect(v) }
+
+    fun setKeepScreenAwake(v: Boolean) =
+        writeSetting({ it.copy(keepScreenAwake = v) }) { settings.setKeepScreenAwake(v) }
 
     /**
      * Toggle the "reply in Simplified Chinese" directive.
@@ -1755,7 +1806,8 @@ class PocketViewModel(
      * no setting for it — so the only honest lever is to attach a directive to
      * each prompt. Off means byte-exact passthrough with nothing added.
      */
-    fun setSimplifiedChinese(v: Boolean) = scope.launch { settings.setSimplifiedChinese(v) }
+    fun setSimplifiedChinese(v: Boolean) =
+        writeSetting({ it.copy(simplifiedChinese = v) }) { settings.setSimplifiedChinese(v) }
 
     /**
      * 开关桌宠。
@@ -1763,10 +1815,12 @@ class PocketViewModel(
      * 只是本地偏好，不需要向电脑发任何请求——动画素材就在 APK 里，
      * 打开就立刻能在界面上渲染出来，离线也成立。
      */
-    fun setPetEnabled(v: Boolean) = scope.launch { settings.setPetEnabled(v) }
+    fun setPetEnabled(v: Boolean) =
+        writeSetting({ it.copy(petEnabled = v) }) { settings.setPetEnabled(v) }
 
     /** 调整桌宠宽度；越界值由 [SettingsStore.setPetSize] 夹紧。 */
-    fun setPetSize(v: Int) = scope.launch { settings.setPetSize(v) }
+    fun setPetSize(v: Int) =
+        writeSetting({ it.copy(petSize = v) }) { settings.setPetSize(v) }
 
     /**
      * 开关「悬浮在其他应用上」。
@@ -1775,10 +1829,12 @@ class PocketViewModel(
      * [dev.dshpocket.pet.PetOverlayService] 的是界面层——ViewModel 拿不到
      * Activity 的结果回调，也不该持有它。
      */
-    fun setPetFloating(v: Boolean) = scope.launch { settings.setPetFloating(v) }
+    fun setPetFloating(v: Boolean) =
+        writeSetting({ it.copy(petFloating = v) }) { settings.setPetFloating(v) }
 
     /** 待机时是否自己走动。 */
-    fun setPetRoam(v: Boolean) = scope.launch { settings.setPetRoam(v) }
+    fun setPetRoam(v: Boolean) =
+        writeSetting({ it.copy(petRoam = v) }) { settings.setPetRoam(v) }
 
     /**
      * Collapse a throwable into something worth showing a user.
