@@ -4,6 +4,15 @@
 </p>
 
 <p align="center">
+  <img src="docs/assets/pet-demo.webp" width="280" alt="大肥鱼桌宠 · desk pet · 大肥鱼">
+</p>
+
+<p align="center">
+  <b>桌宠 · 大肥鱼 · desktop pet · desk pet</b><br>
+  内置 106 段动画的桌面宠物「大肥鱼」，不连电脑也能在手机上玩
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/platform-Android%208.0%2B-3DDC84?logo=android&logoColor=white" alt="platform">
   <img src="https://img.shields.io/badge/lang-Kotlin%202.0-7F52FF?logo=kotlin&logoColor=white" alt="lang">
   <img src="https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white" alt="UI">
@@ -19,6 +28,10 @@
 >
 > **它不把模型搬到手机上。** 所有推理、文件操作和命令执行都留在你的电脑上；手机只发送
 > 任务、显示结果、传递你的决定。
+>
+> **它还带了一只桌宠。** 桌面端 DSH 插件 `dsh-pet` 里那只「大肥鱼」被整套搬进了安装包：
+> 106 段动画、12,659 帧，离线可用；能拖、能甩、能点开十三个分组的动作菜单，退出应用后
+> 还能浮在别的应用上面。中文叫**大肥鱼桌宠**，英文就是 **desk pet / desktop pet**。
 
 ```
 ┌──────────────┐   HTTPS / WSS    ┌───────────────────┐   loopback   ┌──────────────────┐
@@ -26,6 +39,25 @@
 │  (Android)   │ ◀─────────────── │  Desktop (Win/mac)│ ◀─────────── │  (your machine)  │
 └──────────────┘   paired device  └───────────────────┘              └──────────────────┘
 ```
+
+---
+
+## 🐟 桌宠：大肥鱼（Desk Pet）
+
+如果你是为了**手机上的桌面宠物 / 大肥鱼 / desk pet** 来的，这个仓库直接给你：
+
+- **106 段动画、12,659 帧、400 px 宽**——就是从桌面插件 `PC2005-cloud/dsh-pet` 的
+  `assets/webm` 逐帧转来的，不是另外画的简化版；十三个分组（待机 / 转向 / 拖拽 /
+  点击回应 / 移动 / 小动作 18 / 玩耍 27 / 吃什么 12 / 时节 21 / 文字 / 余额档位 /
+  碎碎念 / 工作状态）都能在菜单里点播
+- **不连电脑也能玩**：素材随 APK 安装，断网、没配对、电脑关机都还在
+- **能拖、能甩、能跳出应用**：拎起来甩出去会带摩擦滑行、撞屏幕边反弹；待机时自己
+  跳台阶（抛物线 + 落地压扁）；开「悬浮在其他应用上」之后，退出 App 也留在桌面上
+- **会跟着电脑干活的状态变**：排队、思考、找东西、敲命令、等审批、成功、出错，各有各的动画
+- 细节与实现见 [docs/pet.md](docs/pet.md)
+
+> 它跟桌面插件的区别：桌面版是 DSH 的插件（跑在电脑上），这里是把这个功能**做进
+> Android 客户端**——所以手机上没有插件这个概念，装好 App 打开开关就有。
 
 ---
 
