@@ -75,8 +75,18 @@ android {
         //   * 动作不再"平移"：漫游换成一段一段的跳台阶（抛物线 + 落地压扁），
         //     不再播螃蟹走路、也不再有贴着地滑行；
         //   * 宠物可以拉到 320dp（原来最多 200dp），配 400px 的帧放大后仍能看。
-        versionCode = 19
-        versionName = "0.18.0"
+        // 0.19.0：
+        //   * 慢下来：跳台阶从 9–20 秒一次改成 20–30 分钟一次（原来像抽动），
+        //     另外补回左右漫步——每 40–90 秒走一小段，播走动动画、朝走的方向翻转；
+        //   * 拆掉「空气墙」：宠物放大后不再被钉在屏幕中间。边界改成"至少 64dp
+        //     露在外面"，宠物窗口加 FLAG_LAYOUT_NO_LIMITS 让负坐标真正生效
+        //     （否则 WindowManager 会把窗口拉回屏内）；甩出去时也按这套边界反弹；
+        //   * 放大后点不到开关：宠物画在内容之上，整张图（含透明边框）会吃掉
+        //     落在「悬浮在其他应用上」上的点击。现在桌宠小卡片开着时宠物仍在
+        //     （大小滑杆有实时预览），但不装指针输入，触摸直接穿到开关；悬浮窗
+        //     同样在弹层打开时标 FLAG_NOT_TOUCHABLE，App 失焦即恢复。
+        versionCode = 20
+        versionName = "0.19.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

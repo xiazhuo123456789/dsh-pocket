@@ -118,6 +118,9 @@ class PetOverlayService : Service() {
     /** Flipped for a moment on touchdown, drives the landing squash. */
     private val landing = mutableStateOf(false)
 
+    /** True while the stroll loop is stepping, so the walk cycle is on screen. */
+    private val walking = mutableStateOf(false)
+
     private var velocityX = 0f
     private var velocityY = 0f
     private var lastDragAt = 0L
@@ -135,7 +138,13 @@ class PetOverlayService : Service() {
         createChannel()
         startInForeground()
         addPetWindow()
+        // The Activity opens a settings sheet on top of this window from time to
+        // time; follow its flag so the pet never eats the switch underneath it.
+        scope.launch {
+            PetTouches.blocked.collect { blocked -> setTouchable(!blocked) }
+        }
         startRoaming()
+        startStrolling()
         isRunning = true
     }
 
@@ -167,6 +176,7 @@ class PetOverlayService : Service() {
                     externalReaction = reaction.value,
                     externalSay = say.value,
                     dragging = dragState.value,
+                    walking = walking.value,
                     landing = landing.value,
                     flipHorizontally = facingLeft.value,
                     // A tap opens the action sheet; dragging is handled by the
@@ -196,8 +206,7 @@ class PetOverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType(),
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            petWindowFlags(),
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -269,21 +278,23 @@ class PetOverlayService : Service() {
                     val gain = kotlin.math.hypot(vx, vy)
                     if (gain < 0.6f) break
                     val bounds = screenBounds()
-                    val inset = dpToPx(8)
-                    val maxX = (bounds.width() - petWidth - inset).coerceAtLeast(inset)
-                    val maxY = (bounds.height() - petHeight - inset).coerceAtLeast(inset)
+                    val keep = minVisible()
+                    val minX = -petWidth + keep
+                    val maxX = (bounds.width() - keep).coerceAtLeast(minX)
+                    val minY = -petHeight + keep
+                    val maxY = (bounds.height() - keep).coerceAtLeast(minY)
 
                     var px = x + vx
                     var py = y + vy
-                    if (px <= inset) {
-                        px = inset.toFloat()
+                    if (px <= minX) {
+                        px = minX.toFloat()
                         vx = abs(vx) * BOUNCE
                     } else if (px >= maxX) {
                         px = maxX.toFloat()
                         vx = -abs(vx) * BOUNCE
                     }
-                    if (py <= inset) {
-                        py = inset.toFloat()
+                    if (py <= minY) {
+                        py = minY.toFloat()
                         vy = abs(vy) * BOUNCE
                     } else if (py >= maxY) {
                         py = maxY.toFloat()
@@ -305,13 +316,22 @@ class PetOverlayService : Service() {
         }
     }
 
+    /**
+     * The window may hang off the screen edge; how much of the pet has to stay
+     * visible. Without this a large pet (320 dp wide on a 400 dp screen) could only
+     * slide in a band a few dozen dp wide — the "invisible wall" complaint.
+     */
+    private fun minVisible(): Int = dpToPx(64)
+
     private fun clampIntoBounds() {
         val bounds = screenBounds()
-        val inset = dpToPx(8)
-        val maxX = (bounds.width() - petWidth - inset).coerceAtLeast(0)
-        val maxY = (bounds.height() - petHeight - inset).coerceAtLeast(0)
-        x = x.coerceIn(inset, maxX)
-        y = y.coerceIn(inset, maxY)
+        val keep = minVisible()
+        val minX = -petWidth + keep
+        val maxX = (bounds.width() - keep).coerceAtLeast(minX)
+        val minY = -petHeight + keep
+        val maxY = (bounds.height() - keep).coerceAtLeast(minY)
+        x = x.coerceIn(minX, maxX)
+        y = y.coerceIn(minY, maxY)
         applyPosition()
     }
 
@@ -320,6 +340,31 @@ class PetOverlayService : Service() {
         val view = petView ?: return
         params.x = x
         params.y = y
+        runCatching { windowManager.updateViewLayout(view, params) }
+    }
+
+    /**
+     * `FLAG_LAYOUT_NO_LIMITS` is what actually removes the "air wall": without it
+     * WindowManager pulls a window that would hang over the display edge back into
+     * the screen, so the 64 dp clamping above could only ever slide the pet along
+     * a narrow band. With it, negative `x`/`y` mean what they say, and a 320 dp pet
+     * can be carried to any corner of a 400 dp phone.
+     */
+    private fun petWindowFlags(): Int =
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+
+    /**
+     * Make the whole window pass touches through while the in-app settings sheet is
+     * open. The pet stays visible and keeps animating, but a tap aimed at a switch
+     * underneath reaches the switch instead of the sprite's transparent frame.
+     */
+    private fun setTouchable(touchable: Boolean) {
+        val view = petView ?: return
+        val params = petParams ?: return
+        params.flags = petWindowFlags() or
+            (if (touchable) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
         runCatching { windowManager.updateViewLayout(view, params) }
     }
 
@@ -333,14 +378,22 @@ class PetOverlayService : Service() {
     // -------------------------------------------------------------------- roaming
 
     /**
-     * Wanders every 10–22 s, but only when the pet is idle and not in the middle of
-     * something else: a turn in flight owns the sprite, and walking off mid-turn
-     * would read as "it ran away" rather than "it is working".
+     * Two rhythms, on purpose:
+     *
+     * * **strolling** — every 40–90 s the pet walks a short way sideways, playing
+     *   the dedicated walk cycle and facing the way it goes. This is the "左右漫步".
+     * * **hopping** — a hop down/up a step is a much rarer event: every 20–30
+     *   minutes. It used to fire every 9–20 seconds, which read as a fidget rather
+     *   than a pet going about its business.
+     *
+     * Both stand down unless the pet is idle, un-dragged and has roaming enabled:
+     * a turn in flight owns the sprite, and walking off mid-turn would read as
+     * "it ran away" rather than "it is working".
      */
     private fun startRoaming() {
         scope.launch {
             while (isActive) {
-                delay(Random.nextLong(9_000, 20_000))
+                delay(Random.nextLong(20L * 60_000L, 30L * 60_000L))
                 val snapshot = state.value
                 if (dragState.value || menuOpen || moving) continue
                 if (!snapshot.settings.petRoam) continue
@@ -350,25 +403,80 @@ class PetOverlayService : Service() {
         }
     }
 
+    private fun startStrolling() {
+        scope.launch {
+            while (isActive) {
+                delay(Random.nextLong(40_000, 90_000))
+                val snapshot = state.value
+                if (dragState.value || menuOpen || moving) continue
+                if (!snapshot.settings.petRoam) continue
+                if (petClipFor(snapshot, petAssets) != petAssets.roleClip("idle")) continue
+                walkSomewhere()
+            }
+        }
+    }
+
     /**
-     * Hops to a nearby spot, one step at a time. Every few seconds the pet picks a
-     * ledge within reach — mostly sideways, sometimes up or down a level — and
-     * jumps there on an arc, landing with a short squash. Small hops instead of a
-     * continuous slide: a sprite that glides while its feet are planted reads as a
-     * bug, while a hop reads as movement even without a dedicated walk cycle.
+     * Walks sideways a short distance with the walk cycle, flipping the sprite to
+     * face the direction of travel. No vertical change: this is the "wandered over
+     * there" motion, not the "stepped down" one.
+     */
+    private suspend fun walkSomewhere() {
+        val bounds = screenBounds()
+        val keep = minVisible()
+        val minX = -petWidth + keep
+        val maxX = (bounds.width() - keep).coerceAtLeast(minX)
+
+        val direction = if (Random.nextBoolean()) 1 else -1
+        val reach = Random.nextInt(dpToPx(60), dpToPx(170))
+        val targetX = (x + direction * reach).coerceIn(minX, maxX)
+        val delta = targetX - x
+        if (abs(delta) < dpToPx(24)) return
+
+        val step = dpToPx(5)
+        val steps = (abs(delta) / step).coerceAtLeast(1)
+        val perStepMs = if (steps > 60) 40L else 60L
+
+        walking.value = true
+        facingLeft.value = delta < 0
+        moving = true
+        try {
+            var guard = 0
+            while (currentCoroutineContext().isActive && guard++ < 260) {
+                if (dragState.value || menuOpen) break
+                val remaining = targetX - x
+                if (abs(remaining) <= step) break
+                x += if (remaining > 0) step else -step
+                applyPosition()
+                delay(perStepMs)
+            }
+            x = targetX
+            applyPosition()
+        } finally {
+            walking.value = false
+            moving = false
+        }
+    }
+
+    /**
+     * Hops to a nearby ledge — mostly sideways, sometimes up or down a level — and
+     * jumps there on an arc, landing with a short squash. This is the rare motion
+     * (20–30 min); the frequent one is [walkSomewhere].
      */
     private suspend fun hopSomewhere() {
         val bounds = screenBounds()
-        val inset = dpToPx(12)
-        val maxX = (bounds.width() - petWidth - inset).coerceAtLeast(inset)
-        val maxY = (bounds.height() - petHeight - inset).coerceAtLeast(inset)
+        val keep = minVisible()
+        val minX = -petWidth + keep
+        val maxX = (bounds.width() - keep).coerceAtLeast(minX)
+        val minY = -petHeight + keep
+        val maxY = (bounds.height() - keep).coerceAtLeast(minY)
 
         val direction = if (Random.nextBoolean()) 1 else -1
         val reachX = Random.nextInt(dpToPx(56), dpToPx(150))
         // Down more often than up: "hopping down a step" is the natural read.
         val reachY = Random.nextInt(-dpToPx(20), dpToPx(64))
-        val targetX = (x + direction * reachX).coerceIn(inset, maxX)
-        val targetY = (y + reachY).coerceIn(inset, maxY)
+        val targetX = (x + direction * reachX).coerceIn(minX, maxX)
+        val targetY = (y + reachY).coerceIn(minY, maxY)
 
         val startX = x
         val startY = y

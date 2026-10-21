@@ -20,6 +20,9 @@ keystore.properties
 protocol/frames.json
 tests/frames.json
 
+# 发布包只挂 Release 附件，不进仓库（123 MiB 已超 GitHub 单文件提醒线）
+dist/*.apk
+
 # 本地配对凭据与实跑观察值。这些文件可能含真实 deviceId、一次性配对 token
 # 和隧道主机名，属于凭据而非源码，绝不能进入公开仓库。
 # Local pairing credentials and live-run observations. These may contain a real

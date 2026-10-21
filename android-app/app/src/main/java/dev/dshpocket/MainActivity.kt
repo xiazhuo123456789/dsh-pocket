@@ -23,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,6 +41,7 @@ import dev.dshpocket.core.UiState
 import dev.dshpocket.pet.PetOverlay
 import dev.dshpocket.pet.PetOverlayService
 import dev.dshpocket.pet.PetQuickSettings
+import dev.dshpocket.pet.PetTouches
 import dev.dshpocket.service.ConnectionService
 import dev.dshpocket.ui.ChatScreen
 import dev.dshpocket.ui.DshPocketTheme
@@ -304,8 +307,11 @@ class MainActivity : ComponentActivity() {
  * conversation, and a cold start lands on the list — which is predictable, and
  * is what makes the back gesture behave the same way every time.
  *
- * `showSettings` stays local because it is pure view state with no cross-screen
- * consequence, and `rememberSaveable` keeps it across rotation.
+ * `showSettings` / `showPetSettings` live in [PocketRoot] rather than in the
+ * content, because the in-app pet is drawn one layer above the content and has to
+ * become click-through while a sheet is open — otherwise its transparent frame
+ * covers the very switches the sheet exists to expose.
+ * `rememberSaveable` keeps them across rotation.
  */
 @Composable
 private fun PocketRoot(
@@ -314,8 +320,39 @@ private fun PocketRoot(
     onPetFloating: (Boolean) -> Unit,
     onPetRoam: (Boolean) -> Unit,
 ) {
+    // Both flags live here rather than inside PocketContent because the in-app pet
+    // is drawn by this function, one layer above the content. The pet stays visible
+    // over the small pet sheet (that is the only live preview a size slider has),
+    // but it must stop claiming touches while the sheet is open: `detectTapGestures`
+    // used to swallow taps landing on its transparent frame, which is exactly how
+    // "放大之后点不到悬浮开关" happened.
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showPetSettings by rememberSaveable { mutableStateOf(false) }
+
+    val floating = state.settings.petFloating && overlayGranted
+    val modalOpen = showSettings || showPetSettings
+
+    // The floating pet lives in a separate, higher window, so the same overlap has
+    // to be handled there too. When this Activity loses focus (Home, notification
+    // shade) the flag clears again — the pet must stay tappable outside the app.
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    val blockPetTouches = modalOpen && windowFocused
+    DisposableEffect(blockPetTouches) {
+        PetTouches.setBlocked(blockPetTouches)
+        onDispose { PetTouches.setBlocked(false) }
+    }
+
     Box(Modifier.fillMaxSize()) {
-        PocketContent(state, overlayGranted, onPetFloating, onPetRoam)
+        PocketContent(
+            state = state,
+            overlayGranted = overlayGranted,
+            onPetFloating = onPetFloating,
+            onPetRoam = onPetRoam,
+            showSettings = showSettings,
+            onShowSettings = { showSettings = it },
+            showPetSettings = showPetSettings,
+            onShowPetSettings = { showPetSettings = it },
+        )
         // 宠物浮在整个界面之上：它不属于任何一屏，会话列表、聊天、设置都要能看到它。
         //
         // 悬浮窗模式开着时这里不再画：那一只盖在所有应用上面，包括这个 Activity，
@@ -323,10 +360,13 @@ private fun PocketRoot(
         //
         // 不再要求已配对：素材在 APK 里，一只待机的宠物和"有没有连上电脑"无关。
         // 配对页也画 —— 首次运行就看到它在角落里，比读一段说明更直接。
-        val floating = state.settings.petFloating && overlayGranted
-        if (state.settings.petEnabled && !floating) {
+        //
+        // 全屏设置页不画（会挡住大半个界面）；桌宠小卡片仍画，但切成"穿透触摸"，
+        // 于是拉大小滑杆时能看到它跟着变，点下面的开关又不会点到它。
+        if (state.settings.petEnabled && !floating && !showSettings) {
             PetOverlay(
                 state = state,
+                interactive = !modalOpen,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     // 抬高并离边，避开聊天输入框与右下角悬浮按钮。
@@ -342,9 +382,11 @@ private fun PocketContent(
     overlayGranted: Boolean,
     onPetFloating: (Boolean) -> Unit,
     onPetRoam: (Boolean) -> Unit,
+    showSettings: Boolean,
+    onShowSettings: (Boolean) -> Unit,
+    showPetSettings: Boolean,
+    onShowPetSettings: (Boolean) -> Unit,
 ) {
-    var showSettings by rememberSaveable { mutableStateOf(false) }
-    var showPetSettings by rememberSaveable { mutableStateOf(false) }
 
     if (state.paired == null) {
         Box(Modifier.fillMaxSize()) {
@@ -354,7 +396,7 @@ private fun PocketContent(
             )
             // 配对前也能打开桌宠：宠物不依赖电脑，把开关锁在配对之后只是入口问题。
             IconButton(
-                onClick = { showPetSettings = true },
+                onClick = { onShowPetSettings(true) },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
@@ -364,7 +406,7 @@ private fun PocketContent(
             }
         }
         if (showPetSettings) {
-            BackHandler { showPetSettings = false }
+            BackHandler { onShowPetSettings(false) }
             PetQuickSettings(
                 enabled = state.settings.petEnabled,
                 floating = state.settings.petFloating,
@@ -375,7 +417,7 @@ private fun PocketContent(
                 onFloating = onPetFloating,
                 onRoam = onPetRoam,
                 onSize = app().viewModel::setPetSize,
-                onDismiss = { showPetSettings = false },
+                onDismiss = { onShowPetSettings(false) },
             )
         }
         return
@@ -385,12 +427,12 @@ private fun PocketContent(
         // Intercept the system back key: the user expects it to leave settings,
         // not to quit the app. Without this handler the back key propagates to
         // the Activity and exits, which looks like a crash from the user's view.
-        BackHandler { showSettings = false }
+        BackHandler { onShowSettings(false) }
         SettingsScreen(
             connection = state.connection,
             paired = state.paired,
             settings = state.settings,
-            onBack = { showSettings = false },
+            onBack = { onShowSettings(false) },
             onNotifyDone = app().viewModel::setNotifyOnDone,
             onNotifyApproval = app().viewModel::setNotifyOnApproval,
             onNotifyDisconnect = app().viewModel::setNotifyOnDisconnect,
@@ -402,7 +444,7 @@ private fun PocketContent(
             onPetRoam = onPetRoam,
             onReconnect = app().viewModel::reconnect,
             onUnpair = {
-                showSettings = false
+                onShowSettings(false)
                 app().viewModel.unpair()
             },
             onChangeAddress = { app().viewModel.changeAddress(it) },
@@ -440,7 +482,7 @@ private fun PocketContent(
             onOpen = { id -> app().viewModel.openSession(id) },
             onNew = { cwd -> app().viewModel.newSession(cwd) },
             onRefresh = app().viewModel::refreshSessions,
-            onSettings = { showSettings = true },
+            onSettings = { onShowSettings(true) },
         )
     }
 }

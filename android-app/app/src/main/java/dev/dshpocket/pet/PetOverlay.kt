@@ -57,9 +57,13 @@ internal fun fallback(assets: PetAssets): String =
  * softer one. There is deliberately no drag handler *here* — dragging belongs to
  * the floating window, where the pet is the only thing on screen and a drag
  * cannot steal a scroll from the chat list underneath.
+ *
+ * @param interactive false while a settings sheet is open. The sprite still draws
+ *   above the sheet (so resizing it gives live feedback), but it stops claiming
+ *   touches that belong to the controls underneath.
  */
 @Composable
-fun PetOverlay(state: UiState, modifier: Modifier = Modifier) {
+fun PetOverlay(state: UiState, modifier: Modifier = Modifier, interactive: Boolean = true) {
     if (!state.settings.petEnabled) return
     val context = LocalContext.current
     val assets = remember(context) { PetAssets(context.assets) }
@@ -68,5 +72,6 @@ fun PetOverlay(state: UiState, modifier: Modifier = Modifier) {
         assets = assets,
         sizeDp = state.settings.petSize,
         modifier = modifier,
+        interactive = interactive,
     )
 }

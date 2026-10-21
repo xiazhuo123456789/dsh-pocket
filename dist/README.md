@@ -1,5 +1,31 @@
 # 构建产物 / Build artifacts
 
+## v0.19.0
+
+| 文件 / File | 大小 / Size | SHA-256 |
+| --- | --- | --- |
+| `dsh-pocket-0.19.0.apk` | 123.41 MiB (129,389,335 B) | `152b1d79b9daf0d178ab00f62e2d2068585648022ec2e2fb9ed5196aa8b95054` |
+
+四件事，都是"手感"层面的：
+
+- **跳台阶变稀**：上一版 9–20 秒跳一次，像在抽动。现在 **20–30 分钟**一次，
+  真正的"偶尔换一级台阶"。
+- **补回左右漫步**：每 **40–90 秒**走一小段（60–170 dp），播 `walk` 那段走动素材，
+  一步一步挪（每 60 ms 迈 5 dp），朝走的方向左右翻转。这不是 0.18.0 里被否掉的
+  "螃蟹走"，是短距离的溜达，和跳台阶分工不同。
+- **拆掉空气墙**：宠物放大后不再被钉在屏幕中间。边界从"整只必须在屏内"改成
+  "至少露出 64 dp"，窗口可以挂出屏幕四边；甩出去时的反弹也改用同一套边界，
+  所以能一路撞到边缘再弹回来。光改边界还不够——`WindowManager` 会把要超出屏幕的
+  窗口拉回来，负的 `x/y` 会被夹成 0，所以宠物窗口补了 `FLAG_LAYOUT_NO_LIMITS`。
+- **放大后点不到开关**：应用内那只宠物是画在内容之上的图层，拉到 320 dp 时整张图
+  （连透明边框）会吃掉落在「悬浮在其他应用上」上的点击。现在桌宠小卡片开着时宠物
+  仍在（拖「大小」滑杆能实时看到它变大），但 `PetSprite(interactive = false)` 不装
+  指针输入，触摸直接穿到下面的开关；悬浮窗也同步切成 `FLAG_NOT_TOUCHABLE`，
+  设置页打开时则暂时不画。窗口失焦（比如退到桌面）时恢复悬浮窗触摸，免得宠物
+  真的只能看不能摸。
+- 画质没动：仍是 400 px 宽、`FilterQuality.High`，素材 112.59 MB，安装包 123.0 → 123.4 MiB。
+- 构建侧：这台机器可用内存只剩不到 2 GB，R8 full mode 会被系统 OOM 杀掉（`hs_err` 里是 `malloc failed: Chunk::new`），本次用 `android.enableR8.fullMode=false` 出包，仍会脱糖/压缩/混淆，只是少了 full mode 的额外优化；`lintVital` 也因 256 MiB Metaspace 不够而跳过（`-x lintVitalAnalyzeRelease`），编译、R8、资源压缩都通过。
+
 ## v0.18.0
 
 | 文件 / File | 大小 / Size | SHA-256 |
@@ -181,7 +207,7 @@ apksigner verify --print-certs dsh-pocket-0.10.0.apk
 ## 安装 / Install
 
 ```bash
-adb install -r dsh-pocket-0.18.0.apk
+adb install -r dsh-pocket-0.19.0.apk
 ```
 
 或者把 APK 传到手机上点击安装（需要在系统设置里允许「安装未知来源应用」）。
@@ -192,8 +218,8 @@ from an unknown source).
 The first launch lands on the pairing screen. The phone and the desktop need to share a
 network, or the desktop needs to expose a public tunnel.
 
-装好后到「设置 → 关于 → 版本」核对 `0.18.0 (19)`。如果显示 `0.17.0 (18)` 或更早，说明装的是旧包
-（旧包的帧只有 200 px 宽、移动是贴着地面的平移）。
+装好后到「设置 → 关于 → 版本」核对 `0.19.0 (20)`。如果显示 `0.18.0 (19)` 或更早，说明装的是旧包
+（旧包跳台阶每 9–20 秒一次、放大后被空气墙钉在中间、点不到悬浮开关）。
 
 ---
 

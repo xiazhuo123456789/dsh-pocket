@@ -20,7 +20,20 @@
 关掉（`state.settings.petFloating && overlayGranted`），否则同一个屏幕上会出现两只一样的宠物。
 从菜单里点「关闭悬浮」会先写回偏好、再 `stopSelf()`，应用内那只随即重新出现。
 
-两种模式都**不看配对状态**：`PocketRoot` 的条件是 `petEnabled && !floating`，没有 `paired != null`。
+**打开设置时宠物要让开触摸**：宠物画在内容之上的一个图层，放大到 320 dp 时整张图（连透明
+边框）会盖住底部卡片的开关 —— 用户点了半天「悬浮在其他应用上」，点到的是宠物。
+
+- 全屏设置页（`showSettings`）直接不画应用内那只，它会把大半个界面挡住；
+- 桌宠小卡片（`showPetSettings`）仍画，但 `PetSprite(interactive = false)` 不装任何指针
+  输入，于是触摸直接穿透到下面的开关。这样拉「大小」滑杆时还能看着它实时变大，又不会
+  点错；
+- 悬浮窗是另一个窗口（盖在本 Activity 之上），走同一套规则：`PocketRoot` 在
+  `modalOpen && 窗口有焦点` 时写 `PetTouches.setBlocked(true)`，`PetOverlayService` 把
+  窗口标成 `FLAG_NOT_TOUCHABLE`。App 切到后台（失焦）立即解除，桌面上那只照常能点、能拖。
+
+这两个标志因此上提到 `PocketRoot`。
+
+两种模式都**不看配对状态**：`PocketRoot` 的条件是 `petEnabled && !floating && !showSettings`，没有 `paired != null`。
 素材在 APK 里，一只待机的宠物和"有没有连上电脑"无关。取消配对只清凭据，
 `UiState(settings = ...)` 会把设置带过去 —— 早先那版整块 `UiState()` 会连 `petEnabled`
 一起打回默认值，于是"一断开宠物就没了"。
@@ -72,21 +85,37 @@
 
 ## 它怎么"走"
 
-`PetOverlayService.startRoaming()` 每 9–20 秒掷一次骰子，同时满足才动一下：
+两套节奏，故意分开的：
 
-1. 偏好 `petRoam` 为真；
-2. 没在拖、菜单没开、没在跳上一段；
-3. `petClipFor(state, assets) == assets.roleClip("idle")` —— 有任务在跑时它不动，
-   那时候它该演「在干活」。
+| 动作 | 频率 | 做什么 |
+|---|---|---|
+| 左右漫步 | 每 40–90 秒 | 往左或往右走一小段（60–170 dp），播 `walk` 那段走动素材，朝走的方向左右翻转 |
+| 跳台阶 | 每 20–30 分钟 | 一段抛物线跳到另一处（偏向下），落地压扁；rare event，久了才一次 |
 
-**不是平移，也不是走路素材**（用户明确否掉了「螃蟹走路」那种左右横移）：一次移动是
-`hopSomewhere()` 里的**一段抛物线**——随机往横向 56–150 dp、纵向 −20…64 dp（偏向下，
+两者都要求：偏好 `petRoam` 为真；没在拖、菜单没开、没在跳/走上一段；
+`petClipFor(state, assets) == assets.roleClip("idle")` —— 有任务在跑时它不动，
+那时候它该演「在干活」。
+
+**漫步是"一步一步"挪的**：`walkSomewhere()` 每 60 ms 迈 5 dp（步数超过 60 时压到 40 ms），
+同时把 `walking` 置真让精灵切到走动素材，`facingLeft` 按位移方向翻转整张图。
+停下来时清 `walking`，回到待机呼吸。这样看起来像走，而不是贴着地滑。
+
+**跳台阶是一段抛物线**：`hopSomewhere()` 随机往横向 56–150 dp、纵向 −20…64 dp（偏向下，
 像跳下一级台阶）的地方跳，用时 360–620 ms，弧高 18–36 dp，位置按
 `eased = t*t*(3-2t)` 水平推进、`y = startY + dy*eased - arc*sin(πt)` 竖直起落。
 落地时把 `landing` 置真 130 ms，`PetSprite` 用 `animateFloatAsState` 做一次压扁
-（宽 +6%、高 −10%），再恢复。横向朝左时 `flipHorizontally` 把整张图镜像。
+（宽 +6%、高 −10%），再恢复。
 
-有人一拖或一甩就立刻 `return`，把控制权交回去；甩动接在 `flingIfNeeded()` 里。
+**边界只要求"看得见"，不要求"整只都在屏幕里"**：`minVisible()` 是 64 dp，
+窗口允许挂出屏幕四边（`minX = -petWidth + 64dp`）。早先按整只宠物夹在屏内，320 dp 的
+宠物在 400 dp 宽的屏上只剩几十 dp 的可动范围，这就是「放大之后被空气墙困住」。
+
+只改边界还不够：`WindowManager` 默认会把将要超出屏幕的窗口拉回屏内，负的 `x/y` 会被
+悄悄夹成 0。所以宠物窗口带上 **`FLAG_LAYOUT_NO_LIMITS`**（见 `petWindowFlags()`），
+负坐标才真正生效 —— 320 dp 的宠物可以一路拖到屏幕任何一个角，只留 64 dp 看得见。
+
+有人一拖或一甩就立刻 `return`，把控制权交回去；甩动接在 `flingIfNeeded()` 里，
+边界与漫步共用同一套 `minX/minY/maxX/maxY`，所以甩出去也能一路撞到屏幕边缘再弹回来。
 
 ## 素材从哪来
 

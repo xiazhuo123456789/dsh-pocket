@@ -75,6 +75,11 @@ data class PetSay(val text: String, val token: Int)
  *
  * @param externalReaction a one-shot clip pushed in by the host (the action menu
  *   lives outside this composable), replayed whenever its token changes.
+ * @param interactive when false the sprite installs no pointer input at all, so
+ *   every touch falls through to whatever is underneath. The in-app pet uses this
+ *   while a settings sheet is open: the sprite is drawn above the sheet (so the
+ *   user can watch it grow as the size slider moves), but its transparent frame
+ *   would otherwise swallow the taps meant for the switches underneath it.
  */
 @Composable
 fun PetSprite(
@@ -85,8 +90,10 @@ fun PetSprite(
     externalReaction: PetReaction? = null,
     externalSay: PetSay? = null,
     dragging: Boolean = false,
+    walking: Boolean = false,
     landing: Boolean = false,
     flipHorizontally: Boolean = false,
+    interactive: Boolean = true,
     onTap: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
     onDrag: ((dx: Float, dy: Float) -> Unit)? = null,
@@ -103,6 +110,9 @@ fun PetSprite(
     val idleClip = assets.roleClip("idle") ?: fallback(assets)
     val base = when {
         dragging -> assets.roleClip("drag") ?: idleClip
+        // Strolling sideways uses the dedicated walk cycle; a hop is the same
+        // sprite in the air (see PetOverlayService.hopSomewhere).
+        walking -> assets.roleClip("walk") ?: idleClip
         else -> petClipFor(state, assets)
     }
 
@@ -213,8 +223,12 @@ fun PetSprite(
                     }
                     .alpha(if (state.connection.isConnected) 1f else 0.92f)
                     .then(
-                        if (onDrag == null) {
-                            Modifier.pointerInput(assets, onTap, onLongPress) {
+                        when {
+                            // Click-through mode: no pointer node means the touch
+                            // looks straight past the sprite, which is what keeps
+                            // the switches of an open sheet reachable under it.
+                            !interactive -> Modifier
+                            onDrag == null -> Modifier.pointerInput(assets, onTap, onLongPress) {
                                 detectTapGestures(
                                     onTap = {
                                         onTap?.invoke() ?: reactFrom("click", "idle")
@@ -224,8 +238,7 @@ fun PetSprite(
                                     },
                                 )
                             }
-                        } else {
-                            Modifier.pointerInput(assets, onDrag) {
+                            else -> Modifier.pointerInput(assets, onDrag) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     var travelled = Offset.Zero
