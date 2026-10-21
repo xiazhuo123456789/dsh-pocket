@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -53,6 +54,16 @@ data class AppSettings(
     val simplifiedChinese: Boolean = true,
     /** 最近用过的电脑地址，最新的在前；只用于「修改地址」时一键填回。 */
     val recentAddresses: List<String> = emptyList(),
+    /**
+     * 是否在应用内显示桌宠。
+     *
+     * 默认关闭：这是一个控制工具，宠物是装饰，不该在用户没要求它出现时
+     * 占用屏幕上的一块区域。开启后动画素材完全来自 APK 内置的 assets，
+     * 不连接电脑也能播放。
+     */
+    val petEnabled: Boolean = false,
+    /** 桌宠宽度（dp）。高度按素材宽高比换算，所以只需存一个数。 */
+    val petSize: Int = 132,
 )
 
 /**
@@ -78,6 +89,8 @@ class SettingsStore(private val context: Context) {
             lastSessionId = p[KEY_LAST_SESSION],
             simplifiedChinese = p[KEY_SIMPLIFIED_CHINESE] ?: true,
             recentAddresses = p[KEY_RECENT_ADDRESSES]?.split("\n")?.filter { it.isNotBlank() } ?: emptyList(),
+            petEnabled = p[KEY_PET_ENABLED] ?: false,
+            petSize = p[KEY_PET_SIZE] ?: 132,
         )
     }
 
@@ -86,6 +99,16 @@ class SettingsStore(private val context: Context) {
     suspend fun setNotifyOnDisconnect(value: Boolean) = put(KEY_NOTIFY_DISCONNECT, value)
     suspend fun setKeepScreenAwake(value: Boolean) = put(KEY_KEEP_AWAKE, value)
     suspend fun setSimplifiedChinese(value: Boolean) = put(KEY_SIMPLIFIED_CHINESE, value)
+
+    suspend fun setPetEnabled(value: Boolean) = put(KEY_PET_ENABLED, value)
+
+    /**
+     * 桌宠宽度，夹在 [PET_MIN_SIZE]–[PET_MAX_SIZE] 之间。
+     *
+     * 夹紧放在存储层而不是界面层：滑块的边界只是建议，真正写入的值必须是
+     * 能渲染的尺寸，否则一个手滑的极端值会让宠物盖住半个屏幕。
+     */
+    suspend fun setPetSize(value: Int) = put(KEY_PET_SIZE, value.coerceIn(PET_MIN_SIZE, PET_MAX_SIZE))
 
     /**
      * 记住用过的电脑地址。
@@ -117,6 +140,11 @@ class SettingsStore(private val context: Context) {
 
     private companion object {
         const val MAX_RECENT_ADDRESSES = 5
+
+        /** 桌宠宽度下限/上限（dp），与设置页滑块一致。 */
+        const val PET_MIN_SIZE = 96
+        const val PET_MAX_SIZE = 200
+
         val KEY_NOTIFY_DONE = booleanPreferencesKey("notify_done")
         val KEY_NOTIFY_APPROVAL = booleanPreferencesKey("notify_approval")
         val KEY_NOTIFY_DISCONNECT = booleanPreferencesKey("notify_disconnect")
@@ -124,5 +152,7 @@ class SettingsStore(private val context: Context) {
         val KEY_LAST_SESSION = stringPreferencesKey("last_session")
         val KEY_SIMPLIFIED_CHINESE = booleanPreferencesKey("simplified_chinese")
         val KEY_RECENT_ADDRESSES = stringPreferencesKey("recent_addresses")
+        val KEY_PET_ENABLED = booleanPreferencesKey("pet_enabled")
+        val KEY_PET_SIZE = intPreferencesKey("pet_size")
     }
 }

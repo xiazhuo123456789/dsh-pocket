@@ -44,6 +44,7 @@
 | **权限选择** | 同上切换 `read-only` / `workspace-write` / `danger-full-access` |
 | **设置** | 服务器地址、重新连接、撤销本机凭据、通知开关、回答语言 |
 | **工具过程** | 工具调用与结果合为一行：工具名 + 参数摘要 + 可展开的输出 |
+| **桌宠** | 内置 16 段动画（3444 帧，随 APK 离线可用），跟着电脑状态切换，可调大小 |
 
 > **关于两个选择器**：模型和权限都**读自电脑的投影**，不是手机自己记的。因为你
 > 也可以在电脑上改这两项，手机若显示自己上次点的那个，就会承诺一个下一个 turn
@@ -235,6 +236,7 @@ DeepSeek Harness 已有受支持的远程控制面，无需额外组件。原因
 | [docs/protocol.md](docs/protocol.md) | 线协议：帧格式、端点、错误码、审批回执 |
 | [docs/windows-setup.md](docs/windows-setup.md) | 电脑端需要做什么（只有一步） |
 | [docs/android-build.md](docs/android-build.md) | 构建环境、镜像、Windows 中文路径等坑 |
+| [docs/pet.md](docs/pet.md) | 桌宠：状态映射、素材来源与打包格式、怎么重新打包 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 配对失败、隧道重启、403、状态不更新 |
 | [docs/security-model.md](docs/security-model.md) | 威胁模型与不承诺什么 |
 | [docs/sources.md](docs/sources.md) | **每一条外部事实的来源**，以及哪些是观察、哪些是我们的判断 |

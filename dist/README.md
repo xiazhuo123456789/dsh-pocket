@@ -1,5 +1,27 @@
 # 构建产物 / Build artifacts
 
+## v0.12.0
+
+| 文件 / File | 大小 / Size | SHA-256 |
+| --- | --- | --- |
+| `dsh-pocket-0.12.0.apk` | 44.24 MiB (46,389,170 B) | `22ef524b1f219ab61bde916286214e91be005ee2c71aeb410e11532532ed10c1` |
+
+这一版加了**内置桌宠**：16 段动画、3444 帧、0.7× 的透明 WebP（288×241）随 APK 一起安装，
+用 Compose 原生渲染。开在「设置 → 桌宠 → 显示桌宠」，可以拖滑块调大小。
+
+- **离线可用**：素材在 APK 里，没配对、断网、电脑关机都能待机和玩耍。
+- **不申请权限**：纯应用内绘制，不需要悬浮窗权限，也不会浮到别的应用上。
+- **会跟着电脑的状态变**：连上电脑后，思考/工作/等待审批/成功/出错各有对应动画；
+  不连时只播 idle 和随机小动作。
+
+体积从 11.64 MiB 涨到 44.24 MiB，多出来的 32.6 MiB 全是美术素材 —— 这不是无用资源，
+`shrinkResources` 压不掉它，也不该压掉。
+
+> **素材许可**：动画帧来自 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)
+> （MIT，Copyright (c) 2026 PC2005-cloud），经 `QCYTSN/dsh-dafeiyu`（MIT）转码。
+> 版权与许可原文随 APK 打包在 `assets/pet/LICENSE.txt`，仓库侧见
+> `THIRD_PARTY_NOTICES.md`。
+
 ## v0.10.0
 
 | 文件 / File | 大小 / Size | SHA-256 |
@@ -43,7 +65,7 @@ apksigner verify --print-certs dsh-pocket-0.10.0.apk
 ## 安装 / Install
 
 ```bash
-adb install -r dsh-pocket-0.10.0.apk
+adb install -r dsh-pocket-0.12.0.apk
 ```
 
 或者把 APK 传到手机上点击安装（需要在系统设置里允许「安装未知来源应用」）。
@@ -54,7 +76,7 @@ from an unknown source).
 The first launch lands on the pairing screen. The phone and the desktop need to share a
 network, or the desktop needs to expose a public tunnel.
 
-装好后到「设置 → 关于 → 版本」核对 `0.10.0 (11)`。如果显示 `0.9.0 (10)` 或更早，说明装的是旧包。
+装好后到「设置 → 关于 → 版本」核对 `0.12.0 (13)`。如果显示 `0.11.0 (12)` 或更早，说明装的是旧包（旧包没有桌宠）。
 
 ---
 

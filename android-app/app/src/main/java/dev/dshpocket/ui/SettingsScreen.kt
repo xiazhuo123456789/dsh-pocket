@@ -23,6 +23,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import dev.dshpocket.BuildConfig
 import dev.dshpocket.core.ConnectionState
 import dev.dshpocket.core.Phase
@@ -78,6 +80,8 @@ fun SettingsScreen(
     onNotifyApproval: (Boolean) -> Unit,
     onNotifyDisconnect: (Boolean) -> Unit,
     onSimplifiedChinese: (Boolean) -> Unit,
+    onPetEnabled: (Boolean) -> Unit,
+    onPetSize: (Int) -> Unit,
     onReconnect: () -> Unit,
     onUnpair: () -> Unit,
     onChangeAddress: (String) -> Unit,
@@ -307,6 +311,26 @@ fun SettingsScreen(
             )
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            // ---- 桌宠 ---------------------------------------------------------
+            // 这里的开关只管**本地渲染**：素材随 APK 一起安装，不向电脑发任何
+            // 请求，所以没配对、断网、电脑关机时都能显示。副标题必须说清楚这一点，
+            // 否则用户会以为它和「远程控制」一样依赖连接。
+            SectionLabel("桌宠", Modifier.padding(start = 16.dp))
+
+            SwitchRow(
+                title = "显示桌宠",
+                subtitle = "在应用内漂浮一只小宠物；素材已内置，不连接电脑也会待机和玩耍",
+                checked = settings.petEnabled,
+                onCheckedChange = onPetEnabled,
+            )
+            if (settings.petEnabled) {
+                PetSizeRow(
+                    size = settings.petSize,
+                    onSizeChange = onPetSize,
+                )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
             // ---- 对话 ---------------------------------------------------------
             // 这一项容易被误认为"界面语言"，其实是**模型输出语言**：本应用的
             // 界面本来就是中文，回复用的是电脑端模型自己的语言偏好。Remote API
@@ -417,5 +441,32 @@ private fun SwitchRow(
             )
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * 桌宠大小滑块。
+ *
+ * 为什么用连续滑块而不是「小/中/大」三档：宠物的视觉大小直接决定它挡不挡
+ * 聊天内容，而每块屏幕的宽度差得远，三档必然有人两头都不满意。范围与
+ * `SettingsStore.PET_MIN_SIZE`/`PET_MAX_SIZE` 保持一致，写入端也会再夹一次。
+ */
+@Composable
+private fun PetSizeRow(size: Int, onSizeChange: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("大小", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(
+                "$size dp",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = size.toFloat(),
+            onValueChange = { onSizeChange(it.roundToInt()) },
+            valueRange = 96f..200f,
+            steps = 25,
+        )
     }
 }

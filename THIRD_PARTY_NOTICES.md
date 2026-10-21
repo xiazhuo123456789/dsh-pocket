@@ -45,6 +45,23 @@ DSH Pocket 与以下软件通信，但不包含、不重分发它们：
 | `@linxin666/dsh-remote-web-ui` | 提供配对与远程控制面，Apache-2.0 |
 | Cloudflare Tunnel (`cloudflared`) | 公网隧道，由 Cloudflare 条款约束 |
 
+## 随 APK 分发的美术素材
+
+`android-app/app/src/main/assets/pet/` 下的动画帧来自 dsh-pet 项目，与该项目的代码一起
+以 MIT 许可证发布：
+
+| 组件 | 版权 | 许可证 | 说明 |
+| --- | --- | --- | --- |
+| dsh-pet 动画素材 | Copyright (c) 2026 PC2005-cloud | MIT | <https://github.com/PC2005-cloud/dsh-pet> |
+
+这批帧由 `QCYTSN/dsh-dafeiyu`（MIT）从上游原生 24 fps 的透明 VP9 WebM 转成 WebP 序列
+（pin 在上游 commit `549fff2ea33c2acfb16612c76912c6137da4a758`），本项目再缩放至 0.7×、
+以 WebP quality 70 重新编码，并按「每段一个 `.bin` + `pet-manifest.json` 记录每帧字节长度」
+打包。完整的版权与许可原文随素材一起打包在 `assets/pet/LICENSE.txt`。
+
+角色形象由上游项目以 AI 生成。缩放、重编码与重新打包只改变文件格式，不改变美术素材本身的
+权利归属；不提供任何担保。dsh-pet 名称及其项目标识归各自所有者。
+
 ## 关于协议
 
 本仓库的 `docs/protocol.md` 与 `tests/` 中的脚本描述并调用 DeepSeek Harness 的公开

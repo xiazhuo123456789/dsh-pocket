@@ -104,6 +104,23 @@ no code, comments, or assets were copied.
 
 此处的署名是出于对影响的诚实说明，不是许可义务——没有拷贝任何代码、注释或素材。
 
+### 3.1 随 APK 分发的美术素材 / Artwork bundled in the APK
+
+与上面三处不同，这一条的素材**确实被打包进了 APK**，所以单独列出：
+
+| 来源 | 许可证 | 我们做了什么 |
+|---|---|---|
+| [`PC2005-cloud/dsh-pet`](https://github.com/PC2005-cloud/dsh-pet)（Copyright (c) 2026 PC2005-cloud） | MIT | 动画形象的原始来源（24 fps 透明 WebM） |
+| [`QCYTSN/dsh-dafeiyu`](https://github.com/QCYTSN/dsh-dafeiyu)（commit `549fff2ea33c2acfb16612c76912c6137da4a758`） | MIT | 上游转码出的逐帧 WebP，本项目以此为输入 |
+
+本项目再缩放至 0.7×、以 WebP quality 70 重新编码，打进
+`android-app/app/src/main/assets/pet/`（16 段 / 3444 帧 / 34.76 MB）。缩放与重编码只改变
+文件格式，不改变素材的权利归属。MIT 全文随素材打包在 `assets/pet/LICENSE.txt`，
+`THIRD_PARTY_NOTICES.md` 里有对应条目，格式说明见 [`docs/pet.md`](../docs/pet.md)。
+
+Character designs were produced upstream with AI assistance; that provenance is upstream's
+statement, not something this project verified. No warranty is given for the artwork.
+
 ---
 
 ## 4. Documentation and specifications referenced / 参考的文档与规范

@@ -11,7 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -21,12 +23,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dshpocket.core.ChatState.Status as ChatStatus
 import dev.dshpocket.core.Phase
 import dev.dshpocket.core.UiState
+import dev.dshpocket.pet.PetOverlay
 import dev.dshpocket.service.ConnectionService
 import dev.dshpocket.ui.ChatScreen
 import dev.dshpocket.ui.DshPocketTheme
@@ -213,6 +218,24 @@ class MainActivity : ComponentActivity() {
  */
 @Composable
 private fun PocketRoot(state: UiState) {
+    Box(Modifier.fillMaxSize()) {
+        PocketContent(state)
+        // 宠物浮在整个界面之上：它不属于任何一屏，会话列表、聊天、设置都要能看到它。
+        // 配对页不显示——那时用户还没连上任何东西，一只宠物只会分散注意力。
+        if (state.paired != null) {
+            PetOverlay(
+                state = state,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    // 抬高并离边，避开聊天输入框与右下角悬浮按钮。
+                    .padding(end = 12.dp, bottom = 96.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PocketContent(state: UiState) {
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
     if (state.paired == null) {
@@ -237,6 +260,8 @@ private fun PocketRoot(state: UiState) {
             onNotifyApproval = app().viewModel::setNotifyOnApproval,
             onNotifyDisconnect = app().viewModel::setNotifyOnDisconnect,
             onSimplifiedChinese = app().viewModel::setSimplifiedChinese,
+            onPetEnabled = app().viewModel::setPetEnabled,
+            onPetSize = app().viewModel::setPetSize,
             onReconnect = app().viewModel::reconnect,
             onUnpair = {
                 showSettings = false

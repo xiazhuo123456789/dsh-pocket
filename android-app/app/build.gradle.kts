@@ -33,8 +33,14 @@ android {
         //   * 补 Markdown 表格与分隔线渲染。0.5.0 把表格当普通段落打印，屏幕上
         //     就是一串竖线，这是用户说「乱七八糟」的直接来源。
         //   * 打开会话先显示上次的渲染结果，不再每次空白几秒。
-        versionCode = 12
-        versionName = "0.11.0"
+        // 0.12.0：
+        //   * 内置桌宠。动画帧（16 段、3444 帧、0.7× 的透明 WebP）随 APK 一起安装，
+        //     由 Compose 原生渲染，不需要电脑、不需要网络、不申请任何权限。
+        //     设置页新增「桌宠」一节：开关 + 大小滑块。
+        //   * 代价说清楚：APK 从 24.2 MB 涨到约 44 MB，多出来的全是美术素材。
+        //     release 开资源收缩也压不掉它——那不是无用资源，是功能本身。
+        versionCode = 13
+        versionName = "0.12.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

@@ -1751,6 +1751,17 @@ class PocketViewModel(
     fun setSimplifiedChinese(v: Boolean) = scope.launch { settings.setSimplifiedChinese(v) }
 
     /**
+     * 开关桌宠。
+     *
+     * 只是本地偏好，不需要向电脑发任何请求——动画素材就在 APK 里，
+     * 打开就立刻能在界面上渲染出来，离线也成立。
+     */
+    fun setPetEnabled(v: Boolean) = scope.launch { settings.setPetEnabled(v) }
+
+    /** 调整桌宠宽度；越界值由 [SettingsStore.setPetSize] 夹紧。 */
+    fun setPetSize(v: Int) = scope.launch { settings.setPetSize(v) }
+
+    /**
      * Collapse a throwable into something worth showing a user.
      *
      * The two cases are genuinely different and the user needs to tell them apart:

@@ -75,4 +75,11 @@
     <string name="notif_channel_conn_desc">与电脑的连接断开时提醒</string>
     <string name="notif_conn_title">DSH Pocket</string>
     <string name="notif_conn_text">正在保持与电脑的连接</string>
+
+    <!-- 桌宠 -->
+    <string name="pet_content_description">桌宠</string>
+    <string name="pet_section">桌宠</string>
+    <string name="pet_enable">显示桌宠</string>
+    <string name="pet_enable_subtitle">在本应用内漂浮一只小宠物；不连接电脑时也会待机和玩耍</string>
+    <string name="pet_size">大小</string>
 </resources>
