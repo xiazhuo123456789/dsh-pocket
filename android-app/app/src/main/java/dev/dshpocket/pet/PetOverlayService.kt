@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Rect
@@ -37,6 +38,7 @@ import dev.dshpocket.ui.DshPocketTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -92,6 +94,9 @@ import kotlin.random.Random
  */
 class PetOverlayService : Service() {
 
+    /** Which screen edge the pet is resting against, if any. */
+    private enum class PetPose { NONE, PEEK_LEFT, PEEK_RIGHT, REST_BOTTOM, HANG_TOP }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private lateinit var windowManager: WindowManager
@@ -125,6 +130,12 @@ class PetOverlayService : Service() {
     private var velocityY = 0f
     private var lastDragAt = 0L
 
+    /** Which edge the pet leans on now; drives the pose the sprite is drawn with. */
+    private val pose = mutableStateOf(PetPose.NONE)
+
+    /** The fling in flight, so a new finger cancels it instead of fighting it. */
+    private var flingJob: Job? = null
+
     private val reaction = mutableStateOf<PetReaction?>(null)
     private val say = mutableStateOf<PetSay?>(null)
 
@@ -149,6 +160,18 @@ class PetOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+
+    /**
+     * Rotation, split-screen and a resized navigation bar all change the usable
+     * display without restarting the service. Re-clamp against the new metrics, or
+     * the window keeps coordinates from a screen that no longer exists and can end
+     * up entirely outside the new one — the "sometimes I cannot find it at all"
+     * half of the report.
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        clampIntoBounds()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -179,11 +202,18 @@ class PetOverlayService : Service() {
                     walking = walking.value,
                     landing = landing.value,
                     flipHorizontally = facingLeft.value,
+                    // Hanging from the top edge is drawn upside-down; every other
+                    // pose is the plain sprite, clipped by the screen edge.
+                    rotationDegrees = if (pose.value == PetPose.HANG_TOP) 180f else 0f,
                     // A tap opens the action sheet; dragging is handled by the
                     // gesture recogniser inside PetSprite.
                     onTap = { openMenu() },
                     onDrag = { dx, dy -> moveBy(dx, dy) },
                     onDragStart = {
+                        // A finger landing on a pet that is still coasting used to
+                        // fight the leftover fling: the pet slid the wrong way for
+                        // a moment because the old velocity was still being added.
+                        flingJob?.cancel()
                         dragState.value = true
                         velocityX = 0f
                         velocityY = 0f
@@ -269,7 +299,8 @@ class PetOverlayService : Service() {
             velocityY = 0f
             return
         }
-        scope.launch {
+        flingJob?.cancel()
+        flingJob = scope.launch {
             moving = true
             try {
                 var vx = velocityX
@@ -278,11 +309,10 @@ class PetOverlayService : Service() {
                     val gain = kotlin.math.hypot(vx, vy)
                     if (gain < 0.6f) break
                     val bounds = screenBounds()
-                    val keep = minVisible()
-                    val minX = -petWidth + keep
-                    val maxX = (bounds.width() - keep).coerceAtLeast(minX)
-                    val minY = -petHeight + keep
-                    val maxY = (bounds.height() - keep).coerceAtLeast(minY)
+                    val minX = xMin()
+                    val maxX = xMax(bounds)
+                    val minY = yMin()
+                    val maxY = yMax(bounds)
 
                     var px = x + vx
                     var py = y + vy
@@ -304,6 +334,10 @@ class PetOverlayService : Service() {
                     facingLeft.value = vx < 0
                     x = px.roundToInt()
                     y = py.roundToInt()
+                    // Keep the pose in step with the bounce, so a fling that ends
+                    // against an edge leaves the pet resting there rather than
+                    // upright and half off screen.
+                    clampEdges()
                     applyPosition()
 
                     vx *= FRICTION
@@ -317,22 +351,52 @@ class PetOverlayService : Service() {
     }
 
     /**
-     * The window may hang off the screen edge; how much of the pet has to stay
-     * visible. Without this a large pet (320 dp wide on a 400 dp screen) could only
-     * slide in a band a few dozen dp wide — the "invisible wall" complaint.
+     * How the pet sits against a screen edge, which is also how far it is allowed
+     * to hang over that edge.
+     *
+     * The old rule kept a flat 64 dp of the pet inside the display, so a 320 dp
+     * pet could put almost two thirds of itself outside — the "half the body
+     * disappears and then I cannot find it at all" report. Each edge now keeps a
+     * fixed share of the sprite on screen *and* gives the pet a pose there:
+     * half a head leaning out at the sides, the head resting on the bottom edge,
+     * and an upside-down hang from the top edge.
      */
-    private fun minVisible(): Int = dpToPx(64)
+    private fun xMin(): Int = -(petWidth * SIDE_KEEP).roundToInt()
+
+    private fun xMax(bounds: Rect): Int =
+        (bounds.width() - (petWidth * (1f - SIDE_KEEP)).roundToInt())
+            .coerceAtLeast(xMin())
+
+    private fun yMin(): Int = -(petHeight * TOP_KEEP).roundToInt()
+
+    private fun yMax(bounds: Rect): Int =
+        (bounds.height() - (petHeight * BOTTOM_KEEP).roundToInt())
+            .coerceAtLeast(yMin())
 
     private fun clampIntoBounds() {
+        clampEdges()
+        applyPosition()
+    }
+
+    /**
+     * Clamps and re-derives the edge pose in one place, so a drag, a fling, a hop
+     * and a screen rotation all agree about what "against the edge" means.
+     */
+    private fun clampEdges() {
         val bounds = screenBounds()
-        val keep = minVisible()
-        val minX = -petWidth + keep
-        val maxX = (bounds.width() - keep).coerceAtLeast(minX)
-        val minY = -petHeight + keep
-        val maxY = (bounds.height() - keep).coerceAtLeast(minY)
+        val minX = xMin()
+        val maxX = xMax(bounds)
+        val minY = yMin()
+        val maxY = yMax(bounds)
         x = x.coerceIn(minX, maxX)
         y = y.coerceIn(minY, maxY)
-        applyPosition()
+        pose.value = when {
+            y <= minY -> PetPose.HANG_TOP
+            x <= minX -> PetPose.PEEK_LEFT
+            x >= maxX -> PetPose.PEEK_RIGHT
+            y >= maxY -> PetPose.REST_BOTTOM
+            else -> PetPose.NONE
+        }
     }
 
     private fun applyPosition() {
@@ -423,9 +487,8 @@ class PetOverlayService : Service() {
      */
     private suspend fun walkSomewhere() {
         val bounds = screenBounds()
-        val keep = minVisible()
-        val minX = -petWidth + keep
-        val maxX = (bounds.width() - keep).coerceAtLeast(minX)
+        val minX = xMin()
+        val maxX = xMax(bounds)
 
         val direction = if (Random.nextBoolean()) 1 else -1
         val reach = Random.nextInt(dpToPx(60), dpToPx(170))
@@ -451,6 +514,7 @@ class PetOverlayService : Service() {
                 delay(perStepMs)
             }
             x = targetX
+            clampEdges()
             applyPosition()
         } finally {
             walking.value = false
@@ -465,11 +529,10 @@ class PetOverlayService : Service() {
      */
     private suspend fun hopSomewhere() {
         val bounds = screenBounds()
-        val keep = minVisible()
-        val minX = -petWidth + keep
-        val maxX = (bounds.width() - keep).coerceAtLeast(minX)
-        val minY = -petHeight + keep
-        val maxY = (bounds.height() - keep).coerceAtLeast(minY)
+        val minX = xMin()
+        val maxX = xMax(bounds)
+        val minY = yMin()
+        val maxY = yMax(bounds)
 
         val direction = if (Random.nextBoolean()) 1 else -1
         val reachX = Random.nextInt(dpToPx(56), dpToPx(150))
@@ -502,6 +565,7 @@ class PetOverlayService : Service() {
             }
             x = targetX
             y = targetY
+            clampEdges()
             applyPosition()
             landing.value = true
             delay(130)
@@ -657,6 +721,18 @@ class PetOverlayService : Service() {
         private const val NOTIFICATION_ID = 0x0FE7
         private const val BOUNCE = 0.62f
         private const val FRICTION = 0.94f
+
+        /**
+         * Share of the sprite that must stay on screen against each edge.
+         *
+         * Half is the sweet spot: at the sides it reads as a head peeking around
+         * the bezel, at the bottom the head rests on the edge, and at the top the
+         * remaining half is enough to grab. It also means the pet can never be
+         * more than half lost, whatever the phone's aspect ratio.
+         */
+        private const val SIDE_KEEP = 0.5f
+        private const val TOP_KEEP = 0.5f
+        private const val BOTTOM_KEEP = 0.5f
 
         /** True while the overlay window is on screen, for the in-app UI to hide its twin. */
         @Volatile

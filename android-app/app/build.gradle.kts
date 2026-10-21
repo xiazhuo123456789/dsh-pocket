@@ -85,8 +85,15 @@ android {
         //     落在「悬浮在其他应用上」上的点击。现在桌宠小卡片开着时宠物仍在
         //     （大小滑杆有实时预览），但不装指针输入，触摸直接穿到开关；悬浮窗
         //     同样在弹层打开时标 FLAG_NOT_TOUCHABLE，App 失焦即恢复。
-        versionCode = 20
-        versionName = "0.19.0"
+        //   * 四条边各留一半在屏内，并且各有一个姿势：左右探出半个脑袋、下边
+        //     头搭在边缘、上边整张图旋转 180° 倒挂。夹取只在 clampEdges() 里算，
+        //     拖动/甩动/漫步/跳跃/转屏共用，所以不会再出现「只有上边会弹、另外
+        //     三边半身消失」。
+        //   * 镜像会让拖拽反向：graphicsLayer(scaleX = -1) 连指针坐标一起镜像，
+        //     精灵朝左时每个水平位移都是反的。PetSprite 现在先按 flipHorizontally
+        //     把 dx 正回来；按下时还会取消未停的甩动。
+        versionCode = 21
+        versionName = "0.20.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

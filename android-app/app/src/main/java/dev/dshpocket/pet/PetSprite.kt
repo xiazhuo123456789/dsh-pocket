@@ -93,6 +93,7 @@ fun PetSprite(
     walking: Boolean = false,
     landing: Boolean = false,
     flipHorizontally: Boolean = false,
+    rotationDegrees: Float = 0f,
     interactive: Boolean = true,
     onTap: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
@@ -218,6 +219,7 @@ fun PetSprite(
                 modifier = Modifier
                     .size(width, height)
                     .graphicsLayer {
+                        rotationZ = rotationDegrees
                         scaleX = (if (flipHorizontally) -1f else 1f) * (1f + 0.06f * squash)
                         scaleY = 1f - 0.10f * squash
                     }
@@ -238,7 +240,7 @@ fun PetSprite(
                                     },
                                 )
                             }
-                            else -> Modifier.pointerInput(assets, onDrag) {
+                            else -> Modifier.pointerInput(assets, onDrag, flipHorizontally) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     var travelled = Offset.Zero
@@ -254,7 +256,16 @@ fun PetSprite(
                                             onDragStart?.invoke()
                                         }
                                         if (dragging) {
-                                            onDrag(delta.x, delta.y)
+                                            // `graphicsLayer(scaleX = -1)` mirrors this
+                                            // node, and Compose feeds pointer positions
+                                            // back through the inverse of that matrix —
+                                            // so while the sprite faces left every
+                                            // horizontal delta arrives negated and the
+                                            // pet ran away from the finger. Undo the
+                                            // mirror here, in the space the finger
+                                            // actually moved in.
+                                            val dx = if (flipHorizontally) -delta.x else delta.x
+                                            onDrag(dx, delta.y)
                                             change.consume()
                                         }
                                     }
