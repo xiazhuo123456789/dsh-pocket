@@ -23,11 +23,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.dshpocket.core.ChatState
@@ -47,20 +47,28 @@ data class PetSay(val text: String, val token: Int)
 /**
  * The pet sprite itself — one animation loop plus the interaction layer.
  *
- * Split out of [PetOverlay] because the same drawing now has two hosts: the
- * in-app overlay (composed inside the Activity) and the floating overlay window
+ * Split out of [PetOverlay] because the same drawing has two hosts: the in-app
+ * overlay (composed inside the Activity) and the floating overlay window
  * (composed from [PetOverlayService], where there is no Activity at all). Both
  * must show the *same* pet reacting to the *same* [UiState]; duplicating the
  * decode/reaction logic would let the two drift apart.
  *
+ * ### Which clip plays
+ *
+ * `dragging` and `walking` win over the host state: being carried or walking to a
+ * new spot is something the pet is doing *right now*, and the desktop plugin's
+ * drag / walk loops exist exactly for that. Otherwise the host state picks a
+ * looping clip through [petClipFor], and one-shot reactions (a tap, the end of a
+ * turn, a menu pick) temporarily take over for exactly one pass.
+ *
  * ### Interaction
  *
- * When [onDrag] is null the sprite behaves like before: tap = `poke`, long press
- * = `head_pat`. When [onDrag] is supplied it switches to a single-gesture
- * recogniser — a finger that moves past the touch slop drags the window, a finger
- * that lifts in place taps. Two independent detectors (`detectTapGestures` plus
- * `detectDragGestures`) cannot coexist here: the tap detector claims the pointer
- * on down, and the drag detector never sees the movement it needs.
+ * When [onDrag] is null the sprite uses `detectTapGestures`; when it is supplied it
+ * switches to a single-gesture recogniser — a finger that moves past the touch slop
+ * drags the window, a finger that lifts in place taps. Two independent detectors
+ * (`detectTapGestures` plus `detectDragGestures`) cannot coexist here: the tap
+ * detector claims the pointer on down, and the drag detector never sees the
+ * movement it needs.
  *
  * @param externalReaction a one-shot clip pushed in by the host (the action menu
  *   lives outside this composable), replayed whenever its token changes.
@@ -68,28 +76,41 @@ data class PetSay(val text: String, val token: Int)
 @Composable
 fun PetSprite(
     state: UiState,
+    assets: PetAssets,
     sizeDp: Int,
     modifier: Modifier = Modifier,
     externalReaction: PetReaction? = null,
     externalSay: PetSay? = null,
+    dragging: Boolean = false,
+    walking: Boolean = false,
+    flipHorizontally: Boolean = false,
     onTap: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
     onDrag: ((dx: Float, dy: Float) -> Unit)? = null,
     onDragStart: (() -> Unit)? = null,
     onDragEnd: (() -> Unit)? = null,
 ) {
-    val context = LocalContext.current
-    val assets = remember(context) { PetAssets(context.assets) }
     val player = remember(assets) { PetPlayer(assets) }
     val scope = rememberCoroutineScope()
 
     var reaction by remember { mutableStateOf<PetReaction?>(null) }
     var bubble by remember { mutableStateOf<String?>(null) }
-    val base = petClipFor(state)
 
-    fun react(clip: String) {
-        if (!assets.has(clip)) return
+    // Which clip should hold the screen when nothing one-shot is playing.
+    val idleClip = assets.roleClip("idle") ?: fallback(assets)
+    val base = when {
+        walking -> assets.roleClip("walk") ?: idleClip
+        dragging -> assets.roleClip("drag") ?: idleClip
+        else -> petClipFor(state, assets)
+    }
+
+    fun react(clip: String?) {
+        if (clip.isNullOrEmpty() || !assets.has(clip)) return
         reaction = PetReaction(clip, (reaction?.token ?: 0) + 1)
+    }
+
+    fun reactFrom(vararg roles: String) {
+        for (role in roles) react(assets.roleIds(role).randomOrNull())
     }
 
     // A clip requested by the host menu. Replayed whenever the token changes, so
@@ -102,8 +123,9 @@ fun PetSprite(
     // End-of-turn is a one-shot event, not a state: fired once per status change.
     LaunchedEffect(state.chat.status) {
         when (state.chat.status) {
-            ChatState.Status.Done -> react("success")
-            ChatState.Status.Failed, ChatState.Status.Cancelled -> react("error")
+            ChatState.Status.Done -> reactFrom("workSuccess")
+            ChatState.Status.Failed, ChatState.Status.Cancelled -> reactFrom("workError")
+            ChatState.Status.AwaitingApproval -> reactFrom("workWaiting")
             else -> Unit
         }
     }
@@ -121,17 +143,18 @@ fun PetSprite(
     // back to whatever the host state says.
     LaunchedEffect(reaction?.token) {
         val current = reaction ?: return@LaunchedEffect
-        delay(assets.clips[current.clip]?.durationMs ?: 2_000L)
+        delay(assets.durationMs(current.clip))
         if (reaction?.token == current.token) reaction = null
     }
 
-    // Idle micro-actions: a pet that only breathes looks frozen. Only when the
-    // base clip is `idle`, so they never interrupt a working animation.
+    // Idle micro-actions: a pet that only breathes looks frozen, and the desktop
+    // plugin has a whole 「小动作」 category the phone should not waste. Only while
+    // the base clip is the idle loop, so they never interrupt real work.
     LaunchedEffect(base, reaction == null) {
-        if (base != "idle" || reaction != null) return@LaunchedEffect
-        val candidates = listOf("idle_yawn", "idle_stretch", "tail")
+        if (base != idleClip || reaction != null) return@LaunchedEffect
+        val candidates = assets.groupClips("小动作").ifEmpty { listOfNotNull(idleClip) }
         while (true) {
-            delay(Random.nextLong(14_000, 30_000))
+            delay(Random.nextLong(12_000, 26_000))
             if (reaction == null) react(candidates.random())
         }
     }
@@ -170,45 +193,50 @@ fun PetSprite(
                 }
             }
             Image(
-            bitmap = bitmap!!,
-            contentDescription = stringResource(dev.dshpocket.R.string.pet_content_description),
-            modifier = Modifier
-                .size(width, height)
-                .alpha(if (state.connection.isConnected) 1f else 0.92f)
-                .then(
-                    if (onDrag == null) {
-                        Modifier.pointerInput(assets) {
-                            detectTapGestures(
-                                onTap = { onTap?.invoke() ?: react("poke") },
-                                onLongPress = { onLongPress?.invoke() ?: react("head_pat") },
-                            )
-                        }
-                    } else {
-                        Modifier.pointerInput(assets, onDrag) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false)
-                                var travelled = Offset.Zero
-                                var dragging = false
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (!change.pressed) break
-                                    val delta = change.positionChange()
-                                    travelled += delta
-                                    if (!dragging && travelled.getDistance() > viewConfiguration.touchSlop) {
-                                        dragging = true
-                                        onDragStart?.invoke()
-                                    }
-                                    if (dragging) {
-                                        onDrag(delta.x, delta.y)
-                                        change.consume()
-                                    }
-                                }
-                                if (dragging) onDragEnd?.invoke() else onTap?.invoke()
+                bitmap = bitmap!!,
+                contentDescription = stringResource(dev.dshpocket.R.string.pet_content_description),
+                modifier = Modifier
+                    .size(width, height)
+                    .graphicsLayer { scaleX = if (flipHorizontally) -1f else 1f }
+                    .alpha(if (state.connection.isConnected) 1f else 0.92f)
+                    .then(
+                        if (onDrag == null) {
+                            Modifier.pointerInput(assets, onTap, onLongPress) {
+                                detectTapGestures(
+                                    onTap = {
+                                        onTap?.invoke() ?: reactFrom("click", "idle")
+                                    },
+                                    onLongPress = {
+                                        onLongPress?.invoke() ?: reactFrom("drag", "click")
+                                    },
+                                )
                             }
-                        }
-                    }
-                ),
+                        } else {
+                            Modifier.pointerInput(assets, onDrag) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    var travelled = Offset.Zero
+                                    var dragging = false
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed) break
+                                        val delta = change.positionChange()
+                                        travelled += delta
+                                        if (!dragging && travelled.getDistance() > viewConfiguration.touchSlop) {
+                                            dragging = true
+                                            onDragStart?.invoke()
+                                        }
+                                        if (dragging) {
+                                            onDrag(delta.x, delta.y)
+                                            change.consume()
+                                        }
+                                    }
+                                    if (dragging) onDragEnd?.invoke() else onTap?.invoke()
+                                }
+                            }
+                        },
+                    ),
             )
         }
     }

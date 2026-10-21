@@ -12,22 +12,30 @@ import kotlinx.serialization.json.Json
  *
  * ### Why the frames are packed, not stored one file per frame
  *
- * The source set is 3444 WebP files. Shipping them individually would add 3444
- * zip entries to the APK (slow to install, slow to enumerate) and would make
- * `AssetManager.open` the per-frame cost instead of decoding. Instead every clip
- * is one `<clip>.bin`: its frames concatenated in order, with the per-frame byte
- * lengths recorded in `pet-manifest.json`. Playing a frame is then a slice of an
- * already-loaded array, which is why [decodeFrame] takes an offset and a length.
+ * The source set is a hundred-odd WebM animations of ~240 frames each. Shipping
+ * frames individually would add tens of thousands of zip entries to the APK (slow
+ * to install, slow to enumerate) and would make `AssetManager.open` the per-frame
+ * cost instead of decoding. Instead every clip is one `<id>.bin`: its frames
+ * concatenated in order, with the per-frame byte lengths recorded in
+ * `pet-manifest.json`. Playing a frame is then a slice of an already-loaded array,
+ * which is why [decodeFrame] takes an offset and a length.
  *
- * A whole clip is roughly 2.3 MB, so [PetPlayer] keeps at most two of them
- * resident and decodes frames on demand — the alternative (decoding all 241
- * frames of a clip up front) would be 66 MB per clip at 288x240.
+ * A whole clip is a few hundred KB, so [PetPlayer] keeps at most two of them
+ * resident and decodes frames on demand.
+ *
+ * ### Manifest shape (version 2)
+ *
+ * `clips` carries every animation with its display label and menu group;
+ * `groups` is the menu order; `roles` maps the handful of semantic slots the app
+ * needs (`idle`, `drag`, `click`, `walk`, `workBusy`, ...) onto clip ids. Keeping
+ * the Chinese labels out of Kotlin means the packer can rename or regroup
+ * animations without a code change.
  *
  * ### Licence
  *
- * The frames derive from `PC2005-cloud/dsh-pet` (MIT, Copyright (c) 2026
- * PC2005-cloud), re-encoded here at 0.7x as transparent WebP. The notice ships
- * beside the assets in `assets/pet/LICENSE.txt`; see also
+ * The frames derive from `PC2005-cloud/dsh-pet` (code MIT, artwork not for
+ * commercial use), re-encoded here as transparent WebP at a reduced size. The
+ * notice ships beside the assets in `assets/pet/LICENSE.txt`; see also
  * `THIRD_PARTY_NOTICES.md`.
  */
 class PetAssets(private val assets: AssetManager) {
@@ -36,6 +44,8 @@ class PetAssets(private val assets: AssetManager) {
     @Serializable
     data class Clip(
         val id: String,
+        val label: String = "",
+        val group: String = "",
         val frames: Int,
         val width: Int,
         val height: Int,
@@ -54,10 +64,11 @@ class PetAssets(private val assets: AssetManager) {
             }
             out
         }
-
-        /** How long one pass takes, used to time one-shot interactions. */
-        val durationMs: Long get() = frames * 1000L / PetAssets.FPS
     }
+
+    /** One menu section: a title and the clips under it, in packer order. */
+    @Serializable
+    data class Group(val id: String, val clips: List<String> = emptyList())
 
     @Serializable
     private data class Manifest(
@@ -66,15 +77,23 @@ class PetAssets(private val assets: AssetManager) {
         val width: Int = 0,
         val height: Int = 0,
         val clips: List<Clip> = emptyList(),
+        val groups: List<Group> = emptyList(),
+        val roles: Map<String, List<String>> = emptyMap(),
     )
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** Frame rate declared by the packer. Frames are re-encoded at the source 24 fps. */
+    /** Frame rate declared by the packer. */
     val fps: Int
 
-    /** Clips by id (`idle`, `thinking`, `working`, ...). */
+    /** Clips by id. */
     val clips: Map<String, Clip>
+
+    /** Menu sections, already filtered down to clips that exist. */
+    val groups: List<Group>
+
+    /** Semantic slot -> clip ids, already filtered down to clips that exist. */
+    private val roles: Map<String, List<String>>
 
     /** Aspect ratio of one frame, height / width, for laying the pet out. */
     val aspect: Float
@@ -88,10 +107,34 @@ class PetAssets(private val assets: AssetManager) {
         }.getOrNull()
         fps = manifest?.fps ?: FPS
         clips = manifest?.clips?.associateBy { it.id } ?: emptyMap()
-        aspect = manifest?.takeIf { it.width > 0 }?.let { it.height.toFloat() / it.width } ?: 0.833f
+        aspect = manifest?.takeIf { it.width > 0 }?.let { it.height.toFloat() / it.width } ?: 0.565f
+        groups = manifest?.groups.orEmpty()
+            .map { group -> Group(group.id, group.clips.filter { clips.containsKey(it) }) }
+            .filter { it.clips.isNotEmpty() }
+        roles = manifest?.roles.orEmpty()
+            .mapValues { (_, ids) -> ids.filter { clips.containsKey(it) } }
+            .filterValues { it.isNotEmpty() }
     }
 
     fun has(id: String): Boolean = clips.containsKey(id)
+
+    /** How long one pass of [id] takes, used to time one-shot interactions. */
+    fun durationMs(id: String?): Long {
+        val clip = id?.let { clips[it] } ?: return 2_000L
+        return clip.frames * 1000L / fps.coerceAtLeast(1)
+    }
+
+    /** Display label of a clip ("优雅女仆舞"), falling back to its id. */
+    fun label(id: String): String = clips[id]?.label?.takeIf { it.isNotEmpty() } ?: id
+
+    /** The clips bound to a semantic role, in packer order. */
+    fun roleIds(role: String): List<String> = roles[role].orEmpty()
+
+    /** First clip bound to [role], or null when the pack has no such animation. */
+    fun roleClip(role: String): String? = roleIds(role).firstOrNull()
+
+    /** All clips under a menu group title. */
+    fun groupClips(title: String): List<String> = groups.firstOrNull { it.id == title }?.clips.orEmpty()
 
     /**
      * The raw bytes of one clip's frames, or null when the asset is missing.
@@ -108,7 +151,7 @@ class PetAssets(private val assets: AssetManager) {
             .getOrNull()
 
     companion object {
-        /** Source frame rate of every clip in the pack. */
-        const val FPS = 24
+        /** Fallback frame rate when the manifest does not say. */
+        const val FPS = 12
     }
 }

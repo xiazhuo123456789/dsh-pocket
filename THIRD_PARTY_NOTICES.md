@@ -54,10 +54,10 @@ DSH Pocket 与以下软件通信，但不包含、不重分发它们：
 | --- | --- | --- | --- |
 | dsh-pet 动画素材 | Copyright (c) 2026 PC2005-cloud | MIT | <https://github.com/PC2005-cloud/dsh-pet> |
 
-这批帧由 `QCYTSN/dsh-dafeiyu`（MIT）从上游原生 24 fps 的透明 VP9 WebM 转成 WebP 序列
-（pin 在上游 commit `549fff2ea33c2acfb16612c76912c6137da4a758`），本项目再缩放至 0.7×、
-以 WebP quality 70 重新编码，并按「每段一个 `.bin` + `pet-manifest.json` 记录每帧字节长度」
-打包。完整的版权与许可原文随素材一起打包在 `assets/pet/LICENSE.txt`。
+这批帧直接由上游原生 24 fps 的透明 VP9 WebM（`assets/webm`，106 段）解出：
+本项目用 `ffmpeg -c:v libvpx-vp9` 取出透明通道、按 `fps=12` 与 `scale=200` 抽帧，
+再以 WebP quality 60 重新编码，并按「每段一个 `.bin` + `pet-manifest.json` 记录每帧
+字节长度」打包。完整的版权与许可原文随素材一起打包在 `assets/pet/LICENSE.txt`。
 
 角色形象由上游项目以 AI 生成。缩放、重编码与重新打包只改变文件格式，不改变美术素材本身的
 权利归属；不提供任何担保。dsh-pet 名称及其项目标识归各自所有者。

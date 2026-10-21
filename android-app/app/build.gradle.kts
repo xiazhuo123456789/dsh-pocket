@@ -64,8 +64,13 @@ android {
         //   * 配对页右上角加了桌宠设置的入口：素材在 APK 里，不连电脑也能先开。
         //   * 菜单按桌面端的分组来（互动 / 小动作 / 干活 / 结果），并补上"碎碎念"
         //     气泡；漫步改成带速度的折返跑，撞到屏幕边会弹回来。
-        versionCode = 17
-        versionName = "0.16.0"
+        // 0.17.0：
+        //   * 素材换成桌面插件 dsh-pet 的全套动画（106 段 webm → 逐帧 WebP），
+        //     菜单按它的十三个分组列出，动作不再是"十六个"；
+        //   * 拎起来甩出去会带着速度滑出去、撞到屏幕边反弹（摩擦衰减）；
+        //   * 自动漫步改成真的走动：播走动动画、按方向左右翻转、一步一步挪。
+        versionCode = 18
+        versionName = "0.17.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

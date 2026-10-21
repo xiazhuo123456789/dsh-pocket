@@ -38,10 +38,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -71,11 +73,19 @@ import kotlin.random.Random
  * running — the failure mode where the phone says "working" while the computer
  * already finished.
  *
- * ### Movement
+ * ### Movement, and why it is not a teleport
  *
- * Dragging updates the window's `x`/`y` directly (no Compose offset): the window
- * manager is the component that owns the position, and moving the Compose content
- * instead would leave the window's touch area behind.
+ * The window's `x`/`y` are owned by the window manager, so every move is an
+ * `updateViewLayout`. Three ways to move, all of them continuous:
+ *
+ *  * **Drag** follows the finger 1:1.
+ *  * **Fling** (lifting a finger while still moving) carries the velocity, decays
+ *    it, and reflects it off the screen edges — the pet bounces instead of
+ *    stopping dead at the border, which is what the desktop plugin does.
+ *  * **Roam** picks a nearby point and *walks* there a few pixels per frame while
+ *    the sprite plays the walk animation and flips to face the direction of
+ *    travel. A straight-line slide with a frozen sprite is what the previous
+ *    version did, and it looked like the pet was being dragged by a rope.
  *
  * On its own the pet wanders only while idle — a working turn pins it, so the
  * animation that says "I am busy" is never sliding off somewhere else.
@@ -86,6 +96,7 @@ class PetOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var owner: OverlayLifecycleOwner
+    private val petAssets by lazy { PetAssets(applicationContext.assets) }
 
     private var petView: ComposeView? = null
     private var menuView: ComposeView? = null
@@ -95,9 +106,18 @@ class PetOverlayService : Service() {
     private var petHeight = 0
     private var x = 0
     private var y = 0
-    private var dragging = false
     private var menuOpen = false
-    private var roaming = false
+    private var moving = false
+
+    /** True while a finger is on the pet, drives the drag animation. */
+    private val dragState = mutableStateOf(false)
+
+    /** True while the window is gliding, drives the walk animation. */
+    private val gait = mutableStateOf(Gait())
+
+    private var velocityX = 0f
+    private var velocityY = 0f
+    private var lastDragAt = 0L
 
     private val reaction = mutableStateOf<PetReaction?>(null)
     private val say = mutableStateOf<PetSay?>(null)
@@ -139,23 +159,32 @@ class PetOverlayService : Service() {
                 val snapshot by state.collectAsState()
                 PetSprite(
                     state = snapshot,
+                    assets = petAssets,
                     sizeDp = snapshot.settings.petSize,
                     externalReaction = reaction.value,
                     externalSay = say.value,
+                    dragging = dragState.value,
+                    walking = gait.value.walking,
+                    flipHorizontally = gait.value.flip,
                     // A tap opens the action sheet; dragging is handled by the
                     // gesture recogniser inside PetSprite.
                     onTap = { openMenu() },
                     onDrag = { dx, dy -> moveBy(dx, dy) },
-                    onDragStart = { dragging = true },
-                    onDragEnd = { dragging = false },
+                    onDragStart = {
+                        dragState.value = true
+                        velocityX = 0f
+                        velocityY = 0f
+                        lastDragAt = System.currentTimeMillis()
+                    },
+                    onDragEnd = {
+                        dragState.value = false
+                        flingIfNeeded()
+                    },
                 )
             }
         }
 
-        val sizeDp = state.value.settings.petSize
-        petWidth = dpToPx(sizeDp)
-        petHeight = dpToPx((sizeDp * 0.837f).roundToInt())
-
+        applyPetSize(state.value.settings.petSize)
         val bounds = screenBounds()
         x = (bounds.width() - petWidth - dpToPx(20)).coerceAtLeast(0)
         y = (bounds.height() - petHeight - dpToPx(160)).coerceAtLeast(0)
@@ -189,21 +218,89 @@ class PetOverlayService : Service() {
 
         scope.launch {
             state.collect { snapshot ->
-                val width = dpToPx(snapshot.settings.petSize)
-                val height = dpToPx((snapshot.settings.petSize * 0.837f).roundToInt())
-                if (width != petWidth || height != petHeight) {
-                    petWidth = width
-                    petHeight = height
-                    clampIntoBounds()
-                }
+                val changed = applyPetSize(snapshot.settings.petSize)
+                if (changed) clampIntoBounds()
             }
         }
     }
 
+    /** Recomputes the window footprint; returns true when it actually changed. */
+    private fun applyPetSize(sizeDp: Int): Boolean {
+        val width = dpToPx(sizeDp)
+        val height = dpToPx((sizeDp * petAssets.aspect).roundToInt().coerceAtLeast(1))
+        if (width == petWidth && height == petHeight) return false
+        petWidth = width
+        petHeight = height
+        return true
+    }
+
     private fun moveBy(dx: Float, dy: Float) {
+        val now = System.currentTimeMillis()
+        val elapsed = (now - lastDragAt).coerceAtLeast(1L)
+        // Exponential smoothing: the last few moves matter more than the first
+        // one, so a flick that ends in a pause does not fling at all.
+        val blend = (elapsed / 40f).coerceIn(0.2f, 1f)
+        velocityX = velocityX * (1 - blend) + (dx / elapsed * 16f) * blend
+        velocityY = velocityY * (1 - blend) + (dy / elapsed * 16f) * blend
+        lastDragAt = now
+
         x += dx.roundToInt()
         y += dy.roundToInt()
         clampIntoBounds()
+    }
+
+    /** Continue the drag's velocity after the finger leaves. */
+    private fun flingIfNeeded() {
+        val speed = kotlin.math.hypot(velocityX, velocityY)
+        if (speed < 1.5f) {
+            velocityX = 0f
+            velocityY = 0f
+            return
+        }
+        scope.launch {
+            moving = true
+            try {
+                var vx = velocityX
+                var vy = velocityY
+                while (isActive) {
+                    val gain = kotlin.math.hypot(vx, vy)
+                    if (gain < 0.6f) break
+                    val bounds = screenBounds()
+                    val inset = dpToPx(8)
+                    val maxX = (bounds.width() - petWidth - inset).coerceAtLeast(inset)
+                    val maxY = (bounds.height() - petHeight - inset).coerceAtLeast(inset)
+
+                    var px = x + vx
+                    var py = y + vy
+                    if (px <= inset) {
+                        px = inset.toFloat()
+                        vx = abs(vx) * BOUNCE
+                    } else if (px >= maxX) {
+                        px = maxX.toFloat()
+                        vx = -abs(vx) * BOUNCE
+                    }
+                    if (py <= inset) {
+                        py = inset.toFloat()
+                        vy = abs(vy) * BOUNCE
+                    } else if (py >= maxY) {
+                        py = maxY.toFloat()
+                        vy = -abs(vy) * BOUNCE
+                    }
+
+                    gait.value = Gait(walking = true, flip = vx < 0)
+                    x = px.roundToInt()
+                    y = py.roundToInt()
+                    applyPosition()
+
+                    vx *= FRICTION
+                    vy *= FRICTION
+                    delay(16)
+                }
+            } finally {
+                gait.value = Gait()
+                moving = false
+            }
+        }
     }
 
     private fun clampIntoBounds() {
@@ -234,71 +331,67 @@ class PetOverlayService : Service() {
     // -------------------------------------------------------------------- roaming
 
     /**
-     * Wanders every 10–22 s, but only when the pet is idle: a turn in flight owns
-     * the sprite, and moving the window mid-turn would read as "it ran away"
-     * rather than "it is working".
+     * Wanders every 10–22 s, but only when the pet is idle and not in the middle of
+     * something else: a turn in flight owns the sprite, and walking off mid-turn
+     * would read as "it ran away" rather than "it is working".
      */
     private fun startRoaming() {
         scope.launch {
             while (isActive) {
-                delay(Random.nextLong(10_000, 22_000))
+                delay(Random.nextLong(9_000, 20_000))
                 val snapshot = state.value
-                if (dragging || menuOpen || roaming) continue
+                if (dragState.value || menuOpen || moving) continue
                 if (!snapshot.settings.petRoam) continue
-                if (dev.dshpocket.pet.petClipFor(snapshot) != "idle") continue
-                roamOnce()
+                if (petClipFor(snapshot, petAssets) != petAssets.roleClip("idle")) continue
+                walkSomewhere()
             }
         }
     }
 
     /**
-     * Bounces around the screen instead of walking to one random point.
+     * Walks to a nearby point instead of sliding there.
      *
-     * 桌面端的宠物是"甩出去会撞墙反弹"的，只做一次 smoothstep 位移读起来像传送：
-     * 它到了某个点就停住，也不看边界。这里给一个随机方向的速度，每帧撞到边就把
-     * 该轴的速度取反、位置贴边 —— 于是它会在屏幕上折返跑，撞够次数自己停。
+     * The desktop plugin's own move animation has a lead/tail (`leadSec`,
+     * `tailSec`), so the phone should look the same: the sprite switches to the
+     * walk clip, faces the direction of travel, steps a few pixels per frame, and
+     * stops when it arrives or when the screen edge is reached.
      */
-    private suspend fun roamOnce() {
+    private suspend fun walkSomewhere() {
         val bounds = screenBounds()
-        val inset = dpToPx(8)
+        val inset = dpToPx(12)
         val maxX = (bounds.width() - petWidth - inset).coerceAtLeast(inset)
         val maxY = (bounds.height() - petHeight - inset).coerceAtLeast(inset)
 
-        var px = x.toFloat()
-        var py = y.toFloat()
+        val distance = Random.nextInt(dpToPx(40), dpToPx(180)).coerceAtLeast(1)
         val angle = Random.nextDouble(0.0, Math.PI * 2)
-        val speed = Random.nextDouble(2.0, 4.0).toFloat()
-        var vx = (Math.cos(angle) * speed).toFloat()
-        var vy = (Math.sin(angle) * speed).toFloat()
+        val targetX = (x + kotlin.math.cos(angle) * distance)
+            .roundToInt().coerceIn(inset, maxX)
+        val targetY = (y + kotlin.math.sin(angle) * distance * 0.55)
+            .roundToInt().coerceIn(inset, maxY)
 
-        roaming = true
+        moving = true
         try {
-            // 30–70 帧 ≈ 1.5–3.5 秒：够看到它跑起来和弹一次，又不至于一直动。
-            repeat(Random.nextInt(30, 70)) {
-                if (dragging || menuOpen) return
-                px += vx
-                py += vy
-                if (px <= inset) {
-                    px = inset.toFloat()
-                    vx = kotlin.math.abs(vx)
-                } else if (px >= maxX) {
-                    px = maxX.toFloat()
-                    vx = -kotlin.math.abs(vx)
-                }
-                if (py <= inset) {
-                    py = inset.toFloat()
-                    vy = kotlin.math.abs(vy)
-                } else if (py >= maxY) {
-                    py = maxY.toFloat()
-                    vy = -kotlin.math.abs(vy)
-                }
-                x = px.roundToInt()
-                y = py.roundToInt()
+            var guard = 0
+            while (currentCoroutineContext().isActive && guard++ < 260) {
+                if (dragState.value || menuOpen) return
+                val dx = targetX - x
+                val dy = targetY - y
+                val remaining = kotlin.math.hypot(dx.toFloat(), dy.toFloat())
+                if (remaining < dpToPx(4)) break
+                val step = dpToPx(5).toFloat().coerceAtMost(remaining)
+                val stepX = (dx / remaining * step).roundToInt()
+                val stepY = (dy / remaining * step * 0.7f).roundToInt()
+                gait.value = Gait(walking = true, flip = stepX < 0)
+                x = (x + stepX).coerceIn(inset, maxX)
+                y = (y + stepY).coerceIn(inset, maxY)
                 applyPosition()
-                delay(16)
+                // 60 ms/frame: slower than the animation, which is what makes it
+                // read as a walk rather than a scroll.
+                delay(60)
             }
         } finally {
-            roaming = false
+            gait.value = Gait()
+            moving = false
         }
     }
 
@@ -313,6 +406,7 @@ class PetOverlayService : Service() {
             DshPocketTheme {
                 val snapshot by state.collectAsState()
                 PetActionMenu(
+                    assets = petAssets,
                     roam = snapshot.settings.petRoam,
                     size = snapshot.settings.petSize,
                     onReaction = { clip ->
@@ -354,7 +448,10 @@ class PetOverlayService : Service() {
         ).apply { gravity = Gravity.TOP or Gravity.START }
 
         runCatching { windowManager.addView(view, params) }
-            .onFailure { menuOpen = false; return }
+            .onFailure {
+                menuOpen = false
+                return
+            }
         menuView = view
     }
 
@@ -439,9 +536,14 @@ class PetOverlayService : Service() {
         setViewTreeSavedStateRegistryOwner(owner)
     }
 
+    /** Which way the pet is facing while it moves. */
+    private data class Gait(val walking: Boolean = false, val flip: Boolean = false)
+
     companion object {
         private const val CHANNEL_ID = "pet_overlay"
         private const val NOTIFICATION_ID = 0x0FE7
+        private const val BOUNCE = 0.62f
+        private const val FRICTION = 0.94f
 
         /** True while the overlay window is on screen, for the in-app UI to hide its twin. */
         @Volatile

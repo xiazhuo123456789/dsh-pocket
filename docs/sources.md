@@ -110,13 +110,13 @@ no code, comments, or assets were copied.
 
 | 来源 | 许可证 | 我们做了什么 |
 |---|---|---|
-| [`PC2005-cloud/dsh-pet`](https://github.com/PC2005-cloud/dsh-pet)（Copyright (c) 2026 PC2005-cloud） | MIT | 动画形象的原始来源（24 fps 透明 WebM） |
-| [`QCYTSN/dsh-dafeiyu`](https://github.com/QCYTSN/dsh-dafeiyu)（commit `549fff2ea33c2acfb16612c76912c6137da4a758`） | MIT | 上游转码出的逐帧 WebP，本项目以此为输入 |
+| [`PC2005-cloud/dsh-pet`](https://github.com/PC2005-cloud/dsh-pet)（Copyright (c) 2026 PC2005-cloud） | MIT | 动画形象的原始来源（24 fps 透明 WebM，106 段） |
 
-本项目再缩放至 0.7×、以 WebP quality 70 重新编码，打进
-`android-app/app/src/main/assets/pet/`（16 段 / 3444 帧 / 34.76 MB）。缩放与重编码只改变
-文件格式，不改变素材的权利归属。MIT 全文随素材打包在 `assets/pet/LICENSE.txt`，
-`THIRD_PARTY_NOTICES.md` 里有对应条目，格式说明见 [`docs/pet.md`](../docs/pet.md)。
+本项目把上游的 WebM 解成帧：`ffmpeg -c:v libvpx-vp9`（保留 alpha）→ `fps=12,scale=200`
+→ RGBA PNG → WebP quality 60，打进 `android-app/app/src/main/assets/pet/`
+（106 段 / 12,659 帧 / 38.74 MB）。抽帧与重编码只改变文件格式，不改变素材的权利归属。
+MIT 全文随素材打包在 `assets/pet/LICENSE.txt`，`THIRD_PARTY_NOTICES.md` 里有对应条目，
+格式说明见 [`docs/pet.md`](../docs/pet.md)。
 
 Character designs were produced upstream with AI assistance; that provenance is upstream's
 statement, not something this project verified. No warranty is given for the artwork.
