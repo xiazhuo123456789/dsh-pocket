@@ -488,8 +488,8 @@ private fun PetSizeRow(size: Int, onSizeChange: (Int) -> Unit) {
         Slider(
             value = size.toFloat(),
             onValueChange = { onSizeChange(it.roundToInt()) },
-            valueRange = 96f..200f,
-            steps = 25,
+            valueRange = 96f..320f,
+            steps = 55,
         )
     }
 }

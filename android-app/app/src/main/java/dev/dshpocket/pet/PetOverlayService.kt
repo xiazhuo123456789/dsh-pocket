@@ -40,8 +40,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -112,8 +112,11 @@ class PetOverlayService : Service() {
     /** True while a finger is on the pet, drives the drag animation. */
     private val dragState = mutableStateOf(false)
 
-    /** True while the window is gliding, drives the walk animation. */
-    private val gait = mutableStateOf(Gait())
+    /** Which way the pet last jumped, so the sprite can face where it is going. */
+    private val facingLeft = mutableStateOf(false)
+
+    /** Flipped for a moment on touchdown, drives the landing squash. */
+    private val landing = mutableStateOf(false)
 
     private var velocityX = 0f
     private var velocityY = 0f
@@ -164,8 +167,8 @@ class PetOverlayService : Service() {
                     externalReaction = reaction.value,
                     externalSay = say.value,
                     dragging = dragState.value,
-                    walking = gait.value.walking,
-                    flipHorizontally = gait.value.flip,
+                    landing = landing.value,
+                    flipHorizontally = facingLeft.value,
                     // A tap opens the action sheet; dragging is handled by the
                     // gesture recogniser inside PetSprite.
                     onTap = { openMenu() },
@@ -287,7 +290,7 @@ class PetOverlayService : Service() {
                         vy = -abs(vy) * BOUNCE
                     }
 
-                    gait.value = Gait(walking = true, flip = vx < 0)
+                    facingLeft.value = vx < 0
                     x = px.roundToInt()
                     y = py.roundToInt()
                     applyPosition()
@@ -297,7 +300,6 @@ class PetOverlayService : Service() {
                     delay(16)
                 }
             } finally {
-                gait.value = Gait()
                 moving = false
             }
         }
@@ -343,54 +345,60 @@ class PetOverlayService : Service() {
                 if (dragState.value || menuOpen || moving) continue
                 if (!snapshot.settings.petRoam) continue
                 if (petClipFor(snapshot, petAssets) != petAssets.roleClip("idle")) continue
-                walkSomewhere()
+                hopSomewhere()
             }
         }
     }
 
     /**
-     * Walks to a nearby point instead of sliding there.
-     *
-     * The desktop plugin's own move animation has a lead/tail (`leadSec`,
-     * `tailSec`), so the phone should look the same: the sprite switches to the
-     * walk clip, faces the direction of travel, steps a few pixels per frame, and
-     * stops when it arrives or when the screen edge is reached.
+     * Hops to a nearby spot, one step at a time. Every few seconds the pet picks a
+     * ledge within reach — mostly sideways, sometimes up or down a level — and
+     * jumps there on an arc, landing with a short squash. Small hops instead of a
+     * continuous slide: a sprite that glides while its feet are planted reads as a
+     * bug, while a hop reads as movement even without a dedicated walk cycle.
      */
-    private suspend fun walkSomewhere() {
+    private suspend fun hopSomewhere() {
         val bounds = screenBounds()
         val inset = dpToPx(12)
         val maxX = (bounds.width() - petWidth - inset).coerceAtLeast(inset)
         val maxY = (bounds.height() - petHeight - inset).coerceAtLeast(inset)
 
-        val distance = Random.nextInt(dpToPx(40), dpToPx(180)).coerceAtLeast(1)
-        val angle = Random.nextDouble(0.0, Math.PI * 2)
-        val targetX = (x + kotlin.math.cos(angle) * distance)
-            .roundToInt().coerceIn(inset, maxX)
-        val targetY = (y + kotlin.math.sin(angle) * distance * 0.55)
-            .roundToInt().coerceIn(inset, maxY)
+        val direction = if (Random.nextBoolean()) 1 else -1
+        val reachX = Random.nextInt(dpToPx(56), dpToPx(150))
+        // Down more often than up: "hopping down a step" is the natural read.
+        val reachY = Random.nextInt(-dpToPx(20), dpToPx(64))
+        val targetX = (x + direction * reachX).coerceIn(inset, maxX)
+        val targetY = (y + reachY).coerceIn(inset, maxY)
 
+        val startX = x
+        val startY = y
+        val deltaX = targetX - startX
+        val deltaY = targetY - startY
+        val durationMs = (360 + (abs(deltaX) + abs(deltaY)) / 2).coerceIn(360, 620)
+        val arc = dpToPx(Random.nextInt(18, 36))
+
+        facingLeft.value = deltaX < 0
         moving = true
         try {
-            var guard = 0
-            while (currentCoroutineContext().isActive && guard++ < 260) {
-                if (dragState.value || menuOpen) return
-                val dx = targetX - x
-                val dy = targetY - y
-                val remaining = kotlin.math.hypot(dx.toFloat(), dy.toFloat())
-                if (remaining < dpToPx(4)) break
-                val step = dpToPx(5).toFloat().coerceAtMost(remaining)
-                val stepX = (dx / remaining * step).roundToInt()
-                val stepY = (dy / remaining * step * 0.7f).roundToInt()
-                gait.value = Gait(walking = true, flip = stepX < 0)
-                x = (x + stepX).coerceIn(inset, maxX)
-                y = (y + stepY).coerceIn(inset, maxY)
+            val startedAt = System.currentTimeMillis()
+            while (currentCoroutineContext().isActive) {
+                if (dragState.value || menuOpen) break
+                val t = ((System.currentTimeMillis() - startedAt).toFloat() / durationMs)
+                    .coerceIn(0f, 1f)
+                val eased = t * t * (3f - 2f * t)
+                x = (startX + deltaX * eased).roundToInt()
+                y = (startY + deltaY * eased - arc * kotlin.math.sin(Math.PI * t)).roundToInt()
                 applyPosition()
-                // 60 ms/frame: slower than the animation, which is what makes it
-                // read as a walk rather than a scroll.
-                delay(60)
+                if (t >= 1f) break
+                delay(16)
             }
+            x = targetX
+            y = targetY
+            applyPosition()
+            landing.value = true
+            delay(130)
+            landing.value = false
         } finally {
-            gait.value = Gait()
             moving = false
         }
     }
@@ -535,9 +543,6 @@ class PetOverlayService : Service() {
         setViewTreeLifecycleOwner(owner)
         setViewTreeSavedStateRegistryOwner(owner)
     }
-
-    /** Which way the pet is facing while it moves. */
-    private data class Gait(val walking: Boolean = false, val flip: Boolean = false)
 
     companion object {
         private const val CHANNEL_ID = "pet_overlay"

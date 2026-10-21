@@ -119,8 +119,8 @@ fun PetQuickSettings(
                         Slider(
                             value = size.toFloat(),
                             onValueChange = { onSize(it.roundToInt()) },
-                            valueRange = 96f..200f,
-                            steps = 25,
+                            valueRange = 96f..320f,
+                            steps = 55,
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(horizontal = 12.dp),

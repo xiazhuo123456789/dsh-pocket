@@ -239,8 +239,8 @@ def main() -> int:
     )
     ap.add_argument("--ffmpeg", default=DEFAULT_FFMPEG, help="ffmpeg 可执行文件")
     ap.add_argument("--fps", type=int, default=12, help="输出帧率（源是 24）")
-    ap.add_argument("--width", type=int, default=200, help="输出帧宽（px，源是 640）")
-    ap.add_argument("--quality", type=int, default=60, help="WebP 质量")
+    ap.add_argument("--width", type=int, default=400, help="输出帧宽（px，源是 640）")
+    ap.add_argument("--quality", type=int, default=68, help="WebP 质量")
     ap.add_argument("--only", default="", help="只转名字含该串的 clip（调试用）")
     args = ap.parse_args()
 

@@ -1,5 +1,25 @@
 # 构建产物 / Build artifacts
 
+## v0.18.0
+
+| 文件 / File | 大小 / Size | SHA-256 |
+| --- | --- | --- |
+| `dsh-pocket-0.18.0.apk` | 123.00 MiB (128,970,119 B) | `9a32e1b5b496408e4474072bc1d81409345a3ff93eb04e03c8a0cc73fa2217e0` |
+
+这一版只解决两件事：**看着糊** 和 **走得像平移**。
+
+- **帧宽 200 px → 400 px**：上一版为了压体积把 640×360 的源缩到 200 px，手机上放大后
+  边缘全是锯齿。现在缩到 400 px（0.17.0 的两倍边长），并给 `Image` 加
+  `FilterQuality.High`，106 段全部重抽，帧数不变（12,659 帧）。
+- **能拉得更大了**：宠物宽度上限 200 dp → 320 dp，配合 400 px 的帧，放大不再是放大马赛克。
+- **不再"平移"，改成跳台阶**：漫游时不再播螃蟹走路、也不再贴着地面滑行。一次移动是
+  一段抛物线（横向 56–150 dp、纵向偏向下 20–64 dp，360–620 ms，弧高 18–36 dp），
+  落地时压扁 130 ms；朝左跳时整张图镜像。拎着甩出去仍然是带摩擦的滑行 + 撞边反弹。
+- 代价：素材 38.74 → 112.59 MB，安装包 49.68 → 123.00 MiB。想换小体积可以按
+  `docs/pet.md` 里的命令降到 `--width 360 --quality 62`。
+- 这个包**不进 git 仓库**：GitHub 单文件上限 100 MiB，123 MiB 的 APK 会被拒收；
+  它只作为 `v0.18.0` 的 Release 附件提供（仓库里的 `dist/` 目录其余产物照旧）。
+
 ## v0.17.0
 
 | 文件 / File | 大小 / Size | SHA-256 |
@@ -161,7 +181,7 @@ apksigner verify --print-certs dsh-pocket-0.10.0.apk
 ## 安装 / Install
 
 ```bash
-adb install -r dsh-pocket-0.17.0.apk
+adb install -r dsh-pocket-0.18.0.apk
 ```
 
 或者把 APK 传到手机上点击安装（需要在系统设置里允许「安装未知来源应用」）。
@@ -172,7 +192,8 @@ from an unknown source).
 The first launch lands on the pairing screen. The phone and the desktop need to share a
 network, or the desktop needs to expose a public tunnel.
 
-装好后到「设置 → 关于 → 版本」核对 `0.17.0 (18)`。如果显示 `0.16.0 (17)` 或更早，说明装的是旧包（旧包的桌宠只有 16 段动画、甩出去也不会弹）。
+装好后到「设置 → 关于 → 版本」核对 `0.18.0 (19)`。如果显示 `0.17.0 (18)` 或更早，说明装的是旧包
+（旧包的帧只有 200 px 宽、移动是贴着地面的平移）。
 
 ---
 

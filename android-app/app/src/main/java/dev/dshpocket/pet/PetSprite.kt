@@ -1,5 +1,7 @@
 package dev.dshpocket.pet
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -23,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
@@ -55,11 +58,11 @@ data class PetSay(val text: String, val token: Int)
  *
  * ### Which clip plays
  *
- * `dragging` and `walking` win over the host state: being carried or walking to a
- * new spot is something the pet is doing *right now*, and the desktop plugin's
- * drag / walk loops exist exactly for that. Otherwise the host state picks a
- * looping clip through [petClipFor], and one-shot reactions (a tap, the end of a
- * turn, a menu pick) temporarily take over for exactly one pass.
+ * `dragging` wins over the host state: being carried is something the pet is doing
+ * *right now*, and the desktop plugin's drag loop exists exactly for that. A hop
+ * keeps whatever the host state says and only adds a landing squash. Otherwise the
+ * host state picks a looping clip through [petClipFor], and one-shot reactions (a
+ * tap, the end of a turn, a menu pick) temporarily take over for exactly one pass.
  *
  * ### Interaction
  *
@@ -82,7 +85,7 @@ fun PetSprite(
     externalReaction: PetReaction? = null,
     externalSay: PetSay? = null,
     dragging: Boolean = false,
-    walking: Boolean = false,
+    landing: Boolean = false,
     flipHorizontally: Boolean = false,
     onTap: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
@@ -99,7 +102,6 @@ fun PetSprite(
     // Which clip should hold the screen when nothing one-shot is playing.
     val idleClip = assets.roleClip("idle") ?: fallback(assets)
     val base = when {
-        walking -> assets.roleClip("walk") ?: idleClip
         dragging -> assets.roleClip("drag") ?: idleClip
         else -> petClipFor(state, assets)
     }
@@ -169,6 +171,13 @@ fun PetSprite(
     val bitmap: ImageBitmap? by player.frame
     val width = sizeDp.dp
     val height = (sizeDp * assets.aspect).dp
+    // A short squash on touchdown: without it an arc reads as a floating picture
+    // rather than something that jumped and landed.
+    val squash by animateFloatAsState(
+        targetValue = if (landing) 1f else 0f,
+        animationSpec = tween(durationMillis = 90),
+        label = "squash",
+    )
 
     if (bitmap != null) {
         Column(
@@ -195,9 +204,13 @@ fun PetSprite(
             Image(
                 bitmap = bitmap!!,
                 contentDescription = stringResource(dev.dshpocket.R.string.pet_content_description),
+                filterQuality = FilterQuality.High,
                 modifier = Modifier
                     .size(width, height)
-                    .graphicsLayer { scaleX = if (flipHorizontally) -1f else 1f }
+                    .graphicsLayer {
+                        scaleX = (if (flipHorizontally) -1f else 1f) * (1f + 0.06f * squash)
+                        scaleY = 1f - 0.10f * squash
+                    }
                     .alpha(if (state.connection.isConnected) 1f else 0.92f)
                     .then(
                         if (onDrag == null) {

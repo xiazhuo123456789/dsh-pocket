@@ -69,8 +69,14 @@ android {
         //     菜单按它的十三个分组列出，动作不再是"十六个"；
         //   * 拎起来甩出去会带着速度滑出去、撞到屏幕边反弹（摩擦衰减）；
         //   * 自动漫步改成真的走动：播走动动画、按方向左右翻转、一步一步挪。
-        versionCode = 18
-        versionName = "0.17.0"
+        // 0.18.0：
+        //   * 素材从 200px 宽重抽到 400px 宽（源是 640×360），并换成 FilterQuality.High
+        //     —— 0.17.0 为了压体积把帧缩到 200px，放到手机上是糊的；
+        //   * 动作不再"平移"：漫游换成一段一段的跳台阶（抛物线 + 落地压扁），
+        //     不再播螃蟹走路、也不再有贴着地滑行；
+        //   * 宠物可以拉到 320dp（原来最多 200dp），配 400px 的帧放大后仍能看。
+        versionCode = 19
+        versionName = "0.18.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

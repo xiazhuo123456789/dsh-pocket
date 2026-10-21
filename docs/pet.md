@@ -4,7 +4,7 @@
 **不需要电脑、不需要网络**。
 
 - 开关：设置 → 桌宠 → 显示桌宠；**还没配对时**从配对页右上角的齿轮进去也能开
-- 大小：96–200 dp 的滑块（默认 132 dp）
+- 大小：96–320 dp 的滑块（默认 132 dp）
 - 位置：应用内默认右下角；悬浮模式下可拖到屏幕任意位置
 - 悬浮：设置 → 桌宠 → 悬浮在其他应用上（需要一次系统授权）
 - 断线不会关掉它：设置是本机的，与连的是哪台电脑无关
@@ -39,9 +39,10 @@
 | 这一轮成功结束 | `workSuccess` | 工作状态-雀跃庆祝（放一遍） |
 | 失败或被取消 | `workError` | 工作状态-垂头叹气冒汗（放一遍） |
 | 手指按着它 | `drag` | 被鼠标拖拽悬空反馈 |
-| 正在走动 / 被甩出去 | `walk` | 螃蟹走路（按方向左右翻转） |
+| 被甩出去 | — | 不播走路线，直接带速度滑出去（见下节） |
+| 跳向下一处 | — | 只靠身体的翻转与落地压扁表达方向，不播「走路」素材 |
 | 点一下（应用内或悬浮窗） | `click` | 五段「点击回应」随机一段 |
-| 待机时每 12–26 秒 | — | 「小动作」分组里 18 段随机一段 |
+| 待机时每 14–30 秒 | — | 「小动作」分组里 18 段随机一段 |
 | 菜单里选任意动作 | — | 该 clip 放一遍 |
 
 状态读的是 `UiState`（也就是屏幕上正在显示的那份快照），所以宠物不会在界面写着「未连接」
@@ -69,19 +70,23 @@
 - 碎碎念走 `PetSay(text, token)`：气泡默认停 4.5 秒，token 变了才算新的一句，旧的定时器
   不会把新句子清掉。
 
-## 自动漫步
+## 它怎么"走"
 
-`PetOverlayService.startRoaming()` 每 9–20 秒掷一次骰子，同时满足才走：
+`PetOverlayService.startRoaming()` 每 9–20 秒掷一次骰子，同时满足才动一下：
 
 1. 偏好 `petRoam` 为真；
-2. 没在拖、菜单没开、没在走上一段；
-3. `petClipFor(state, assets) == assets.roleClip("idle")` —— 有任务在跑时它不 wander，
+2. 没在拖、菜单没开、没在跳上一段；
+3. `petClipFor(state, assets) == assets.roleClip("idle")` —— 有任务在跑时它不动，
    那时候它该演「在干活」。
 
-一次漫步不是"滑到某个点"，而是**一步一步走过去**：随机取一个 40–180 dp 外的目标点，
-每 60 ms 朝目标迈 5 dp（纵向压到 0.7 倍，看起来像走路而不是爬），同时把 `gait` 置成
-`walking = true`、按横向位移的正负决定 `flipHorizontally`。宠物于是播着「螃蟹走路」、
-朝行进方向翻面地挪过去，到点或碰到屏幕边就停。用户一拖就立刻 `return`，交还控制权。
+**不是平移，也不是走路素材**（用户明确否掉了「螃蟹走路」那种左右横移）：一次移动是
+`hopSomewhere()` 里的**一段抛物线**——随机往横向 56–150 dp、纵向 −20…64 dp（偏向下，
+像跳下一级台阶）的地方跳，用时 360–620 ms，弧高 18–36 dp，位置按
+`eased = t*t*(3-2t)` 水平推进、`y = startY + dy*eased - arc*sin(πt)` 竖直起落。
+落地时把 `landing` 置真 130 ms，`PetSprite` 用 `animateFloatAsState` 做一次压扁
+（宽 +6%、高 −10%），再恢复。横向朝左时 `flipHorizontally` 把整张图镜像。
+
+有人一拖或一甩就立刻 `return`，把控制权交回去；甩动接在 `flingIfNeeded()` 里。
 
 ## 素材从哪来
 
@@ -90,10 +95,13 @@
 
 - 源：640×360、24 fps、10 秒左右的透明 WebM。透明通道在单独的 alpha plane 里，
   **只有 `ffmpeg -c:v libvpx-vp9` 解码器会解出来**（原生 vp9 解码器给的是黑底）。
-- 转码：`fps=12,scale=200:-1:flags=lanczos` → RGBA PNG → Pillow 编码 WebP
-  `quality=60, method=4`。
-- 产物：帧尺寸 200×113，逐个 clip 首尾相接成 `.bin`，合计 **38.74 MB**；
-  APK 里压缩后约 36 MB。
+- 转码：`fps=12,scale=400:-1:flags=lanczos` → RGBA PNG → Pillow 编码 WebP
+  `quality=68, method=4`。
+- 产物：帧尺寸 400×225，逐个 clip 首尾相接成 `.bin`，合计 **112.59 MB**；
+  APK 里压缩后约 108 MB。
+- 为什么是 400 而不是源码的 640：640 全量要约 190 MB，APK 会到 200 MB 以上；
+  400 已经是 0.17.0（200 px）的两倍边长，配上 `FilterQuality.High` 与最高 320 dp 的
+  显示宽度，正常看不会有锯齿。
 
 许可原文随素材打包在 `android-app/app/src/main/assets/pet/LICENSE.txt`，仓库侧见
 [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)。
@@ -108,16 +116,16 @@ assets/pet/
   m001.bin                  120 帧首尾相接
   m002.bin
   ...
-  pet-manifest.json         {"version":2,"fps":12,"width":200,"height":113,
+  pet-manifest.json         {"version":2,"fps":12,"width":400,"height":225,
                              "clips":[{"id":"m001","label":"待机呼吸休闲","group":"待机",
-                                       "frames":120,"width":200,"height":113,"sizes":[...]}],
+                                       "frames":120,"width":400,"height":225,"sizes":[...]}],
                              "groups":[{"id":"待机","clips":["m001"]}, ...],
                              "roles":{"idle":["m001"],"click":["m004",...], ...}}
   LICENSE.txt
 ```
 
 `sizes` 记录每帧的字节数，运行时做前缀和得到 `offsets`，播一帧就是 `bytes.slice(offset, length)`
-加一次 `BitmapFactory.decodeByteArray`。整段 clip 约 0.37 MB，`PetPlayer` 最多常驻两段
+加一次 `BitmapFactory.decodeByteArray`。整段 clip 约 1.06 MB，`PetPlayer` 最多常驻两段
 （当前 + 刚离开的那段），所以内存里同时只有一两张位图。
 
 代码在 `android-app/app/src/main/java/dev/dshpocket/pet/`：
@@ -126,10 +134,10 @@ assets/pet/
 | --- | --- |
 | `PetAssets.kt` | 读 manifest（clips / groups / roles）、给每帧算偏移、解码单帧 |
 | `PetPlayer.kt` | 按 manifest 的 fps 循环播放，`Dispatchers.Default` 解码、主线程赋值 |
-| `PetSprite.kt` | 画一张位图 + 手势（点击/长按/拖动）+ 一次性反应 + 待机小动作 + 左右翻转 |
+| `PetSprite.kt` | 画一张位图 + 手势（点击/长按/拖动）+ 一次性反应 + 待机小动作 + 左右镜像 + 落地压扁 |
 | `PetOverlay.kt` | 状态 → 角色的映射；应用内那只的入口 |
 | `PetActionMenu.kt` | 悬浮窗的底部动作卡片（十三个可折叠分组 + 漫步 + 大小） |
-| `PetOverlayService.kt` | 前台服务 + 悬浮窗 + 拖动 + 甩动 + 漫步 + 菜单窗口 |
+| `PetOverlayService.kt` | 前台服务 + 悬浮窗 + 拖动 + 甩动 + 跳台阶 + 菜单窗口 |
 
 ## 悬浮窗的几个硬约束
 
@@ -159,7 +167,7 @@ python tools/pack_pet.py
 
 # 指定源、输出、参数
 python tools/pack_pet.py --webm <webm 目录> --config <config.jsonc> \
-    --out android-app/app/src/main/assets/pet --fps 12 --width 200 --quality 60
+    --out android-app/app/src/main/assets/pet --fps 12 --width 400 --quality 68
 ```
 
 脚本会先清掉输出目录里旧的 `*.bin`，再按 `config.jsonc` 的分组顺序逐 clip 重写；
@@ -170,6 +178,8 @@ python tools/pack_pet.py --webm <webm 目录> --config <config.jsonc> \
 
 - **动作是"桌面端那些"，不是无限多**：106 段已经覆盖桌面插件全部分类；再加只能是上游
   新增素材，本项目不会凭空生成动画。
+- **APK 因此变大**：112 MB 的帧素材让安装包从 44 MB 涨到 123 MB。这是画质的代价：
+  0.17.0 用 200 px 宽换体积，放大就能看出糊；现在换成 400 px 宽。
 - **国产 ROM 可能杀后台**：前台服务已经能挡住大部分回收，但小米/华为/OPPO 的省电策略
   仍需用户在系统设置里把本应用列为「不优化」，否则悬浮窗过一阵会消失。这不是代码能绕过的。
 - **iOS 不适用**：这是 Android 应用。

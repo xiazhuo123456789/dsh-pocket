@@ -169,7 +169,7 @@ class SettingsStore(private val context: Context) {
 
         /** 桌宠宽度下限/上限（dp），与设置页滑块一致。 */
         const val PET_MIN_SIZE = 96
-        const val PET_MAX_SIZE = 200
+        const val PET_MAX_SIZE = 320
 
         val KEY_NOTIFY_DONE = booleanPreferencesKey("notify_done")
         val KEY_NOTIFY_APPROVAL = booleanPreferencesKey("notify_approval")
