@@ -31,9 +31,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dshpocket.core.ChatState.Status as ChatStatus
 import dev.dshpocket.core.Phase
@@ -333,13 +335,27 @@ private fun PocketRoot(
     val modalOpen = showSettings || showPetSettings
 
     // The floating pet lives in a separate, higher window, so the same overlap has
-    // to be handled there too. When this Activity loses focus (Home, notification
-    // shade) the flag clears again — the pet must stay tappable outside the app.
-    val windowFocused = LocalWindowInfo.current.isWindowFocused
-    val blockPetTouches = modalOpen && windowFocused
-    DisposableEffect(blockPetTouches) {
-        PetTouches.setBlocked(blockPetTouches)
-        onDispose { PetTouches.setBlocked(false) }
+    // to be handled there too. A lifecycle observer, not `isWindowFocused`: when the
+    // user presses Home the sheet is still open, frames stop, and composition may
+    // not run again until the app resumes — the flag would stay set and the pet on
+    // the launcher would be untouchable. `ON_PAUSE` fires synchronously, and
+    // `ON_RESUME` re-applies the block if the sheet is still there.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycle = lifecycleOwner.lifecycle
+    DisposableEffect(lifecycleOwner, modalOpen) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> PetTouches.setBlocked(modalOpen)
+                Lifecycle.Event.ON_PAUSE -> PetTouches.setBlocked(false)
+                else -> Unit
+            }
+        }
+        lifecycle.addObserver(observer)
+        PetTouches.setBlocked(modalOpen && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        onDispose {
+            lifecycle.removeObserver(observer)
+            PetTouches.setBlocked(false)
+        }
     }
 
     Box(Modifier.fillMaxSize()) {

@@ -28,8 +28,9 @@
   输入，于是触摸直接穿透到下面的开关。这样拉「大小」滑杆时还能看着它实时变大，又不会
   点错；
 - 悬浮窗是另一个窗口（盖在本 Activity 之上），走同一套规则：`PocketRoot` 在
-  `modalOpen && 窗口有焦点` 时写 `PetTouches.setBlocked(true)`，`PetOverlayService` 把
-  窗口标成 `FLAG_NOT_TOUCHABLE`。App 切到后台（失焦）立即解除，桌面上那只照常能点、能拖。
+  `modalOpen && Activity 处于 RESUMED` 时写 `PetTouches.setBlocked(true)`，
+  `PetOverlayService` 把窗口标成 `FLAG_NOT_TOUCHABLE`。Activity `onPause`（退到桌面、
+  进系统权限页）同步解除，桌面上那只照常能点、能拖。
 
 这两个标志因此上提到 `PocketRoot`。
 

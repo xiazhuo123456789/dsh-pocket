@@ -4,7 +4,7 @@
 
 | 文件 / File | 大小 / Size | SHA-256 |
 | --- | --- | --- |
-| `dsh-pocket-0.19.0.apk` | 123.41 MiB (129,389,335 B) | `152b1d79b9daf0d178ab00f62e2d2068585648022ec2e2fb9ed5196aa8b95054` |
+| `dsh-pocket-0.19.0.apk` | 123.41 MiB (129,389,335 B) | `2ee4dcc06c06b5a40f0b063154b84237604d5d1b630cec15f39bd60c72a30681` |
 
 四件事，都是"手感"层面的：
 
@@ -21,8 +21,8 @@
   （连透明边框）会吃掉落在「悬浮在其他应用上」上的点击。现在桌宠小卡片开着时宠物
   仍在（拖「大小」滑杆能实时看到它变大），但 `PetSprite(interactive = false)` 不装
   指针输入，触摸直接穿到下面的开关；悬浮窗也同步切成 `FLAG_NOT_TOUCHABLE`，
-  设置页打开时则暂时不画。窗口失焦（比如退到桌面）时恢复悬浮窗触摸，免得宠物
-  真的只能看不能摸。
+  设置页打开时则暂时不画。Activity `onPause`（退到桌面、进系统权限页）时恢复
+  悬浮窗触摸，免得宠物真的只能看不能摸。
 - 画质没动：仍是 400 px 宽、`FilterQuality.High`，素材 112.59 MB，安装包 123.0 → 123.4 MiB。
 - 构建侧：这台机器可用内存只剩不到 2 GB，R8 full mode 会被系统 OOM 杀掉（`hs_err` 里是 `malloc failed: Chunk::new`），本次用 `android.enableR8.fullMode=false` 出包，仍会脱糖/压缩/混淆，只是少了 full mode 的额外优化；`lintVital` 也因 256 MiB Metaspace 不够而跳过（`-x lintVitalAnalyzeRelease`），编译、R8、资源压缩都通过。
 
