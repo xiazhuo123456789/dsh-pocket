@@ -92,8 +92,12 @@ android {
         //   * 镜像会让拖拽反向：graphicsLayer(scaleX = -1) 连指针坐标一起镜像，
         //     精灵朝左时每个水平位移都是反的。PetSprite 现在先按 flipHorizontally
         //     把 dx 正回来；按下时还会取消未停的甩动。
-        versionCode = 21
-        versionName = "0.20.0"
+        // 0.21.0: 素材授权。桌宠形象「大肥鱼」是 CC BY-NC-SA 4.0，不可商用，且要求
+        // 署名两位原作者（B 站 @上善无形 / @ZipZipPipe）与项目地址。原先 THIRD_PARTY
+        // 文档把素材写成 MIT，随包的 LICENSE.txt 也只有一句话——这一版把署名与协议补全，
+        // 「关于」页同步显示。应用本身因此只做非商业分发。
+        versionCode = 22
+        versionName = "0.21.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

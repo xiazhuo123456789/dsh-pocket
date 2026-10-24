@@ -392,11 +392,25 @@ fun SettingsScreen(
             // for an official DeepSeek product.
             SectionLabel("关于", Modifier.padding(start = 16.dp))
             InfoRow(label = "版本", value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-            InfoRow(label = "许可证", value = "MIT")
+            InfoRow(label = "许可证", value = "MIT（代码）")
+            InfoRow(label = "桌宠素材", value = "CC BY-NC-SA 4.0 · 不可商用")
             InfoRow(label = "协议", value = "DeepSeek Harness Remote API Gateway")
             Text(
                 "本应用不包含任何 AI 推理能力，也不在手机上执行文件操作或命令。" +
                     "所有任务都在你配对的电脑上由 DeepSeek Harness 执行。",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Attribution is a licence obligation, not a courtesy: the character is
+            // CC BY-NC-SA 4.0, so the two designers and the upstream project have to be
+            // named wherever the artwork is distributed — including inside the app.
+            Text(
+                "桌宠「大肥鱼」为社区二创形象，非 DeepSeek 官方形象：原型「溟月」出自 B 站 " +
+                    "@上善无形，DeepSeek 版设计出自 B 站 @ZipZipPipe；动画素材来自 " +
+                    "github.com/PC2005-cloud/dsh-pet。该形象以 CC BY-NC-SA 4.0" +
+                    "（署名·非商业·相同方式共享）授权，不可用于任何形式的商业化，因此本应用" +
+                    "完全免费、不含广告与内购。",
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

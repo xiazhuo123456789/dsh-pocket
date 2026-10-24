@@ -110,12 +110,18 @@ no code, comments, or assets were copied.
 
 | 来源 | 许可证 | 我们做了什么 |
 |---|---|---|
-| [`PC2005-cloud/dsh-pet`](https://github.com/PC2005-cloud/dsh-pet)（Copyright (c) 2026 PC2005-cloud） | MIT | 动画形象的原始来源（24 fps 透明 WebM，106 段） |
+| [`PC2005-cloud/dsh-pet`](https://github.com/PC2005-cloud/dsh-pet)（Copyright (c) 2026 PC2005-cloud） | 代码 MIT；**素材与形象 CC BY-NC-SA 4.0** | 动画形象的原始来源（24 fps 透明 WebM，106 段） |
 
 本项目把上游的 WebM 解成帧：`ffmpeg -c:v libvpx-vp9`（保留 alpha）→ `fps=12,scale=200`
 → RGBA PNG → WebP quality 60，打进 `android-app/app/src/main/assets/pet/`
 （106 段 / 12,659 帧 / 38.74 MB）。抽帧与重编码只改变文件格式，不改变素材的权利归属。
-MIT 全文随素材打包在 `assets/pet/LICENSE.txt`，`THIRD_PARTY_NOTICES.md` 里有对应条目，
+
+形象「大肥鱼」是社区二创，非 DeepSeek 官方形象：原型「溟月」出自 B 站
+[@上善无形](https://space.bilibili.com/4456176)，DeepSeek 版设计出自 B 站
+[@ZipZipPipe](https://space.bilibili.com/4168597)。该形象以
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)
+授权（署名 · 非商业 · 相同方式共享），**不可商用**。完整的署名与授权声明随素材打包在
+`assets/pet/LICENSE.txt`，`THIRD_PARTY_NOTICES.md` 里有对应条目，
 格式说明见 [`docs/pet.md`](../docs/pet.md)。
 
 Character designs were produced upstream with AI assistance; that provenance is upstream's

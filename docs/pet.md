@@ -141,8 +141,12 @@
 
 ## 素材从哪来
 
-**106 段动画 / 12,659 帧**，直接取自 `PC2005-cloud/dsh-pet` 的 `assets/webm`
-（代码 MIT，美术素材禁止商用）。不再经过大肥鱼的 16 段转码版本。
+**106 段动画 / 12,659 帧**，直接取自 `PC2005-cloud/dsh-pet` 的 `assets/webm`。
+上游代码是 MIT，但**美术素材与形象是 CC BY-NC-SA 4.0（署名 · 非商业 · 相同方式共享），
+不可商用**；形象「大肥鱼」为社区二创，非 DeepSeek 官方形象，原型「溟月」出自 B 站
+[@上善无形](https://space.bilibili.com/4456176)，DeepSeek 版设计出自 B 站
+[@ZipZipPipe](https://space.bilibili.com/4168597)。署名与授权原文随素材打包在
+`assets/pet/LICENSE.txt`。不再经过大肥鱼的 16 段转码版本。
 
 - 源：640×360、24 fps、10 秒左右的透明 WebM。透明通道在单独的 alpha plane 里，
   **只有 `ffmpeg -c:v libvpx-vp9` 解码器会解出来**（原生 vp9 解码器给的是黑底）。

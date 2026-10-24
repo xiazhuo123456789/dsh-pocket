@@ -62,6 +62,9 @@
 > 它跟桌面插件的区别：桌面版是 DSH 的插件（跑在电脑上），这里是把这个功能**做进
 > Android 客户端**——所以手机上没有插件这个概念，装好 App 打开开关就有。
 
+> ⚠️ **素材授权**：桌宠形象「大肥鱼」以 CC BY-NC-SA 4.0 授权、**不可商用**，
+> 本 App 因此只做免费分发。出处、署名与义务见 [许可证](#-许可证) 一节。
+
 ---
 
 ## ✨ 功能
@@ -342,8 +345,25 @@ DeepSeek Harness 里读出来、再用运行中的进程验证的。哪些是观
 
 ## 📄 许可证
 
-MIT，见 [LICENSE](LICENSE)。第三方组件与各自许可证见
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+**代码**：MIT，见 [LICENSE](LICENSE)。**桌宠素材**：不属于 MIT，见下节。第三方组件与各自
+许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+### 🐟 桌宠素材：CC BY-NC-SA 4.0（不可商用）
+
+[`android-app/app/src/main/assets/pet/`](android-app/app/src/main/assets/pet/) 下的动画帧
+来自 [`PC2005-cloud/dsh-pet`](https://github.com/PC2005-cloud/dsh-pet) 的 `assets/webm`。
+该项目的**代码**是 MIT，但**美术素材与角色形象不适用 MIT**。
+
+- **形象出处**：社区二创的 DeepSeek「大肥鱼」（鲸鱼娘），**非 DeepSeek 官方形象**；
+  原型「溟月」出自 B 站 [@上善无形](https://space.bilibili.com/4456176)，DeepSeek 版
+  （女仆鲸鱼娘）设计出自 B 站 [@ZipZipPipe](https://space.bilibili.com/4168597)
+- **形象授权**：[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)
+  （署名 · 非商业 · 相同方式共享）。原作者声明原文：「大肥鱼是遵守CC BY-NC-SA 4.0协议的形象，
+  **不可以以任何形式商业化**。」
+- **对本项目意味着什么**：本 App **只做非商业分发**——免费、无广告、无内购、不售卖。
+  分发或展示时须保留上面的署名与项目地址；若改编素材，改编部分须以同样的
+  CC BY-NC-SA 4.0 发布。完整声明见
+  [`assets/pet/LICENSE.txt`](android-app/app/src/main/assets/pet/LICENSE.txt)。
 
 ## 🤝 贡献
 

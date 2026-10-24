@@ -47,12 +47,22 @@ DSH Pocket 与以下软件通信，但不包含、不重分发它们：
 
 ## 随 APK 分发的美术素材
 
-`android-app/app/src/main/assets/pet/` 下的动画帧来自 dsh-pet 项目，与该项目的代码一起
-以 MIT 许可证发布：
+`android-app/app/src/main/assets/pet/` 下的动画帧来自 dsh-pet 项目的 `assets/webm`。
+**该项目的代码是 MIT，但美术素材与角色形象不适用 MIT**，而是
+[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans)
+（署名 · 非商业 · 相同方式共享）：
 
-| 组件 | 版权 | 许可证 | 说明 |
+| 组件 | 版权 / 出处 | 许可证 | 说明 |
 | --- | --- | --- | --- |
-| dsh-pet 动画素材 | Copyright (c) 2026 PC2005-cloud | MIT | <https://github.com/PC2005-cloud/dsh-pet> |
+| dsh-pet 动画素材 | Copyright (c) 2026 PC2005-cloud | CC BY-NC-SA 4.0 | <https://github.com/PC2005-cloud/dsh-pet> |
+| 形象原型「溟月」 | B 站 @上善无形 | CC BY-NC-SA 4.0 | <https://space.bilibili.com/4456176> |
+| DeepSeek 版（女仆鲸鱼娘）设计 | B 站 @ZipZipPipe | CC BY-NC-SA 4.0 | <https://space.bilibili.com/4168597> |
+
+形象是社区二创的 DeepSeek「大肥鱼」（鲸鱼娘），**非 DeepSeek 官方形象**。原作者声明原文：
+「大肥鱼是遵守CC BY-NC-SA 4.0协议的形象，不可以以任何形式商业化。」
+
+因此本应用**仅限非商业使用**：不得以任何形式售卖、内购或以营利为目的分发。若对素材做了
+改编，改编后的素材须以同样的 CC BY-NC-SA 4.0 发布。
 
 这批帧直接由上游原生 24 fps 的透明 VP9 WebM（`assets/webm`，106 段）解出：
 本项目用 `ffmpeg -c:v libvpx-vp9` 取出透明通道、按 `fps=12` 与 `scale=200` 抽帧，

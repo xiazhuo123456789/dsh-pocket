@@ -1,5 +1,25 @@
 # 构建产物 / Build artifacts
 
+## v0.21.0
+
+| 文件 / File | 大小 / Size | SHA-256 |
+| --- | --- | --- |
+| `dsh-pocket-0.21.0.apk` | 123.41 MiB (129,390,287 B) | `c057915a6b91116b4a1181fa8aaea3a7f670f62aa3d983d2b69707ae151aed8b` |
+
+这一版**只改授权说明，代码与画面零改动**：桌宠素材本来就不是 MIT，之前的文档写错了。
+
+- **素材授权更正**：`PC2005-cloud/dsh-pet` 的**代码**是 MIT，但**美术素材与角色形象是
+  CC BY-NC-SA 4.0**（署名 · 非商业 · 相同方式共享）。`THIRD_PARTY_NOTICES.md`、
+  `docs/sources.md` 里原来标的 MIT 全部改正。
+- **署名补全**：形象「大肥鱼」是社区二创，**非 DeepSeek 官方形象**；原型「溟月」出自
+  B 站 [@上善无形](https://space.bilibili.com/4456176)，DeepSeek 版设计出自
+  [@ZipZipPipe](https://space.bilibili.com/4168597)。README、`docs/pet.md` 与 App
+  「关于」页都补上了这两条。
+- **随包声明**：`assets/pet/LICENSE.txt` 原来只有一句「素材禁止商用」，现在是完整声明——
+  出处、两位作者、CC 协议全称与链接、原作者声明原文、以及 SA（改编后同样以 CC BY-NC-SA
+  发布）的要求。
+- **结论**：本 App 只做**非商业**分发，不售卖、无内购、无广告。要商业化得换一套原创形象。
+
 ## v0.20.0
 
 | 文件 / File | 大小 / Size | SHA-256 |
